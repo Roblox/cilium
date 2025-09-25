@@ -70,7 +70,6 @@ func (p *CiliumPeerAdvertisement) GetConfiguredAdvertisements(conf *v2.CiliumBGP
 	result := make(PeerAdvertisements)
 	l := p.logger.With(types.InstanceLogField, conf.Name)
 	for _, peer := range conf.Peers {
-
 		if peer.PeerConfigRef == nil || peer.PeerConfigRef.Name == "" {
 			l.Debug("Peer config not specified, skipping advertisement check", types.PeerLogField, peer.Name)
 			continue
@@ -95,6 +94,7 @@ func (p *CiliumPeerAdvertisement) GetConfiguredAdvertisements(conf *v2.CiliumBGP
 		if err != nil {
 			return nil, err
 		}
+		p.logger.Debug("Peer advertisements", types.PeerLogField, peer.Name, "adverts", peerAdverts, "address", ptr.Deref(peer.PeerAddress, ""))
 		id := PeerID{
 			Name:    peer.Name,
 			Address: ptr.Deref(peer.PeerAddress, ""),

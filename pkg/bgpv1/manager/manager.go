@@ -17,6 +17,7 @@ import (
 	"github.com/cilium/statedb"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/utils/ptr"
 
 	"github.com/cilium/cilium/api/v1/models"
 	restapi "github.com/cilium/cilium/api/v1/server/restapi/bgp"
@@ -956,6 +957,9 @@ func (m *BGPRouterManager) reconcileBGPConfigV2(ctx context.Context,
 
 	var reconcileErrs []error
 	for _, r := range m.ConfigReconcilers {
+		for _, peer := range newc.Peers {
+			m.logger.Debug("pre-Reconciling BGP config for peer", types.PeerLogField, peer.Name, "address", ptr.Deref(peer.PeerAddress, ""), "reconciler", r.Name())
+		}
 		if rErr := r.Reconcile(ctx, reconcilerv2.ReconcileParams{
 			BGPInstance:   i,
 			DesiredConfig: newc,
@@ -982,6 +986,9 @@ func (m *BGPRouterManager) reconcileBGPConfigV2(ctx context.Context,
 			if errors.Is(rErr, reconcilerv2.ErrAbortReconcile) {
 				break
 			}
+		}
+		for _, peer := range newc.Peers {
+			m.logger.Debug("post-Reconciling BGP config for peer", types.PeerLogField, peer.Name, "address", ptr.Deref(peer.PeerAddress, ""), "reconciler", r.Name())
 		}
 	}
 

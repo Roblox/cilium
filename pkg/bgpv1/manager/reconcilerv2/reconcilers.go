@@ -27,7 +27,7 @@ const (
 // order in which reconcilers are called. Reconcilers are called from lowest to highest on
 // each Reconcile event.
 const (
-	NeighborReconcilerPriority  = 60
+	NeighborReconcilerPriority  = 20
 	PodIPPoolReconcilerPriority = 50
 	ServiceReconcilerPriority   = 40
 	PodCIDRReconcilerPriority   = 30

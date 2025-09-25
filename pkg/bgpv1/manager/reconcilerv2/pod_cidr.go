@@ -198,6 +198,7 @@ func (r *PodCIDRReconciler) getDesiredRoutePolicies(desiredPeerAdverts PeerAdver
 		if peer.Address == "" {
 			continue
 		}
+		r.logger.Debug("Reconciling route policies for peer", types.PeerLogField, peer.Name)
 		peerAddr, err := netip.ParseAddr(peer.Address)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse peer address: %w", err)

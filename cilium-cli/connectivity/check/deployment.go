@@ -1900,10 +1900,17 @@ func (ct *ConnectivityTest) deployPerf(ctx context.Context) error {
 		var lowPrioDeployAnnotations = annotations{bwPrioAnnotationString: "5"}
 		var highPrioDeployAnnotations = annotations{bwPrioAnnotationString: "6"}
 
-		ct.params.DeploymentAnnotations.Set(`{
-				"` + perClientLowPriorityDeploymentName + `": ` + lowPrioDeployAnnotations.String() + `,
-			    "` + perClientHighPriorityDeploymentName + `": ` + highPrioDeployAnnotations.String() + `
-			}`)
+		deployAnnos := map[string]annotations{
+			perClientLowPriorityDeploymentName:  lowPrioDeployAnnotations,
+			perClientHighPriorityDeploymentName: highPrioDeployAnnotations,
+		}
+		if jsonBytes, err := json.Marshal(deployAnnos); err != nil {
+			ct.Warnf("failed to marshal deployment annotations: %s", err)
+		} else {
+			if err := ct.params.DeploymentAnnotations.Set(string(jsonBytes)); err != nil {
+				ct.Warnf("failed to set deployment annotations: %s", err)
+			}
+		}
 		if err = ct.createServerPerfDeployment(ctx, perfServerDeploymentName, serverNode.Name, false); err != nil {
 			ct.Warnf("unable to create deployment: %s", err)
 		}

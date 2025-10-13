@@ -2343,7 +2343,23 @@ func untar(src string, dst string) error {
 		if err != nil {
 			return err
 		}
-		filename := filepath.Join(dst, name)
+		cleanName := filepath.Clean(name)
+		// Security: Prevent Zip Slip (directory traversal)
+		if cleanName == "." || strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) || strings.Contains(cleanName, "../") || strings.Contains(cleanName, `..\`) {
+			return fmt.Errorf("tar entry %q resolves outside of target dir", header.Name)
+		}
+		filename := filepath.Join(dst, cleanName)
+		absDst, err := filepath.Abs(dst)
+		if err != nil {
+			return err
+		}
+		absFile, err := filepath.Abs(filename)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(absFile, absDst+string(os.PathSeparator)) && absFile != absDst {
+			return fmt.Errorf("tar entry %q would be extracted outside of target dir", header.Name)
+		}
 		directory := filepath.Dir(filename)
 		if err := os.MkdirAll(directory, 0755); err != nil {
 			return err

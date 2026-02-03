@@ -13,9 +13,6 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
-      base-SHA:
-        description: "SHA of the base branch (target branch of the PR)."
-        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -90,7 +87,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -151,28 +148,19 @@ jobs:
             cm-auth-mode: 'cluster'
 
     steps:
-      - name: Set commit status to pending
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
-        with:
-          sha: ${{ inputs.SHA || github.sha }}
-          status: pending
-
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
 
       - name: Set Environment Variables
         uses: ./.github/actions/set-env-variables
-
-      - name: Cleanup Disk space in runner
-        uses: ./.github/actions/disk-cleanup
 
       - name: Set up newest settings
         id: newest-vars
@@ -270,7 +258,7 @@ jobs:
             envsubst < ./.github/kind-config.yaml.tmpl > ./.github/kind-config-cluster2.yaml
 
       - name: Create Kind cluster 1
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: ${{ env.clusterName1 }}
           version: ${{ env.KIND_VERSION }}
@@ -280,7 +268,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Create Kind cluster 2
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: ${{ env.clusterName2 }}
           version: ${{ env.KIND_VERSION }}
@@ -290,7 +278,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
+        uses: cilium/cilium-cli@024e340cca1465e2a6336521f12370c7ca58c59a # v0.18.7
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -400,7 +388,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ steps.newest-vars.outputs.sha }}
           persist-credentials: false
@@ -409,7 +397,7 @@ jobs:
             install/kubernetes/cilium
 
       - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ steps.vars.outputs.downgrade_version }}
           persist-credentials: false
@@ -630,7 +618,6 @@ jobs:
           kubectl --context ${{ env.contextName2 }} logs -n ${{ steps.cilium-cli.outputs.namespace }} -l 'kind in (test-conn-disrupt, test-conn-disrupt-ns-traffic)' --prefix --previous --ignore-errors --timestamps
 
       - name: Run connectivity test - post-upgrade (${{ join(matrix.*, ', ') }})
-        id: run-tests
         run: |
           cilium --context ${{ env.contextName1 }} connectivity test \
             --multi-cluster=${{ env.contextName2 }} \
@@ -829,7 +816,7 @@ jobs:
         shell: bash {0} # Disable default fail-fast behaviour so that all commands run independently
 
       - name: Run common post steps
-        if: ${{ always() && steps.install-cilium-cluster1.outcome != 'skipped' }}
+        if: ${{ always() }}
         uses: ./.github/actions/post-logic
         with:
           artifacts_suffix: "${{ matrix.name }}"
@@ -846,4 +833,4 @@ jobs:
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}
-      success: ${{ needs.upgrade-and-downgrade.result == 'success' }}
+      result: ${{ needs.upgrade-and-downgrade.result }}

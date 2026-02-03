@@ -41,7 +41,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -68,7 +68,6 @@ jobs:
           # build-commits-bpf: Check if datapath build works for every commit
           filters: |
             src:
-              - '.github/workflows/lint-build-commits.yaml'
               - 'bpf/**'
               - '!**/*.md'
 
@@ -80,14 +79,13 @@ jobs:
           # build-commits-test: Check if ginkgo test suite build works for every commit
           filters: |
             src:
-              - '.github/workflows/lint-build-commits.yaml'
               - 'pkg/**'
               - 'test/**'
               - '!**/*.md'
 
   build-commits-cilium:
     name: Check if cilium builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     needs: [compute-vars]
     timeout-minutes: 180
     steps:
@@ -102,7 +100,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -112,14 +110,14 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.0
+          go-version: 1.25.1
 
       - name: Load Golang cache build from GitHub
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -129,7 +127,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Load ccache cache build from GitHub
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: ccache-cache
         with:
           path: /tmp/.cache/ccache
@@ -173,7 +171,7 @@ jobs:
 
   build-commits-hubble-cli:
     name: Check if hubble-cli builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     needs: [compute-vars]
     timeout-minutes: 180
     steps:
@@ -188,7 +186,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -198,14 +196,14 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.0
+          go-version: 1.25.1
 
       - name: Load hubble-cli Golang cache build from GitHub
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: hubble-cache
         with:
           path: /tmp/.cache/hubble-cli
@@ -215,7 +213,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Load ccache cache build from GitHub
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: ccache-cache
         with:
           path: /tmp/.cache/ccache
@@ -265,7 +263,7 @@ jobs:
 
   build-commits-bpf:
     name: Check if bpf builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     needs: [compute-vars]
     # Runs only if code under bpf/ is changed.
     if: needs.compute-vars.outputs.build-bpf == 'true'
@@ -282,7 +280,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -292,14 +290,14 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.0
+          go-version: 1.25.1
 
       - name: Load Golang cache build from GitHub
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -309,7 +307,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Load ccache cache build from GitHub
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: ccache-cache
         with:
           path: /tmp/.cache/ccache
@@ -358,7 +356,7 @@ jobs:
 
   build-commits-test:
     name: Check if test builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     needs: [compute-vars]
     # Runs only if code under test/ is changed.
     if: needs.compute-vars.outputs.build-test == 'true'
@@ -375,7 +373,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -385,11 +383,11 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.0
+          go-version: 1.25.1
 
       - name: Set clang directory
         id: set_clang_dir
@@ -401,7 +399,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libtinfo6
 
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
+        uses: KyleMayes/install-llvm-action@a7a1a882e2d06ebe05d5bb97c3e1f8c984ae96fc # v2.0.7
         with:
           version: "19.1.7"
           directory: ${{ steps.set_clang_dir.outputs.clang_dir }}

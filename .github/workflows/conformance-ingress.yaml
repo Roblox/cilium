@@ -13,9 +13,6 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
-      base-SHA:
-        description: "SHA of the base branch (target branch of the PR)."
-        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -88,7 +85,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -132,19 +129,13 @@ jobs:
           default-ingress-controller: true
 
     steps:
-      - name: Set commit status to pending
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
-        with:
-          sha: ${{ inputs.SHA || github.sha }}
-          status: pending
-
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -177,7 +168,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -187,7 +178,7 @@ jobs:
             examples
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           version: ${{ env.KIND_VERSION }}
           node_image: ${{ env.KIND_K8S_IMAGE }}
@@ -196,7 +187,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
+        uses: cilium/cilium-cli@024e340cca1465e2a6336521f12370c7ca58c59a # v0.18.7
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -205,13 +196,13 @@ jobs:
           release-version: ${{ env.CILIUM_CLI_VERSION }}
 
       - name: Checkout ingress-controller-conformance
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           # Use the forked repo with retry mechanism
           # Please refer to https://github.com/kubernetes-sigs/ingress-controller-conformance/pull/101 for more details.
           repository: cilium/ingress-controller-conformance
           path: ingress-controller-conformance
-          ref: d3c6887c5dd0f5243cd7d622bb5ed82906ee94f9
+          ref: 6a193b3f73d8b1201a818bb7c8f204059b064857
           persist-credentials: false
 
       - name: Install Ingress conformance test tool
@@ -419,7 +410,6 @@ jobs:
             -stop-on-failure
 
       - name: Run basic CLI tests
-        id: run-tests
         shell: bash
         run: |
           cilium connectivity test --include-unsafe-tests --collect-sysdump-on-failure \
@@ -430,12 +420,11 @@ jobs:
             --test 'packet-drops'
 
       - name: Run common post steps
-        if: ${{ always() && steps.install-cilium.outcome != 'skipped' }}
+        if: ${{ always() }}
         uses: ./.github/actions/post-logic
         with:
           artifacts_suffix: "${{ env.job_name }} ${{ matrix.name }}"
           job_status: "${{ job.status }}"
-          capture_features_tested: ${{ steps.run-tests.outcome != 'skipped' }}
 
   merge-upload-and-status:
     name: Merge Upload and Status
@@ -446,4 +435,4 @@ jobs:
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}
-      success: ${{ needs.ingress-conformance-test.result == 'success' }}
+      result: ${{ needs.ingress-conformance-test.result }}

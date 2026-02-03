@@ -13,9 +13,6 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
-      base-SHA:
-        description: "SHA of the base branch (target branch of the PR)."
-        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -27,8 +24,8 @@ on:
 # By specifying the access of one of the scopes, all of those that are not
 # specified are set to 'none'.
 permissions:
-  # To be able to trigger eks-cluster-pool-manager.yaml workflow
-  actions: write
+  # To read actions state with catchpoint/workflow-telemetry-action
+  actions: read
   # To be able to access the repository with actions/checkout
   contents: read
   # To allow retrieving information from the PR API
@@ -85,7 +82,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -138,4 +135,4 @@ jobs:
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}
-      success: ${{ (needs.conformance-aks-ipsec.result == 'success' && needs.conformance-eks-ipsec.result == 'success' && needs.conformance-gke-ipsec.result == 'success') }}
+      result: ${{ (needs.conformance-aks-ipsec.result == 'failure' || needs.conformance-eks-ipsec.result == 'failure' || needs.conformance-gke-ipsec.result == 'failure') && 'failure' || 'success' }}

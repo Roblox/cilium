@@ -10,17 +10,15 @@ jobs:
   validate:
     name: Validate Renovate configuration
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
     steps:
       - name: Checkout configuration
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       # this step uses latest renovate slim release
       - name: Validate configuration
         run: |
           # renovate: datasource=docker
-          export RENOVATE_IMAGE=ghcr.io/renovatebot/renovate:43.31.1@sha256:99198d61d3c837085bdc94e0eafb1d57de3ecbfdc2e5e994817e589f71eacd16
+          export RENOVATE_IMAGE=ghcr.io/renovatebot/renovate:41.135.5@sha256:3fd4995e034ec0991cdcd882c3b59ce9b18e3bd48ce3a2122fda94ff398dd4cb
           docker run --rm --entrypoint "renovate-config-validator" \
             -v "${{ github.workspace }}/.github/renovate.json5":"/renovate.json5" \
             ${RENOVATE_IMAGE} "/renovate.json5"

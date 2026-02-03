@@ -13,9 +13,6 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
-      base-SHA:
-        description: "SHA of the base branch (target branch of the PR)."
-        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -84,7 +81,7 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -95,7 +92,7 @@ jobs:
           destination_directory="/tmp/generated/ipsec"
           mkdir -p "${destination_directory}"
 
-          yq -o=json "${work_dir}/ipsec.yaml" | jq . > "${destination_directory}/matrix.json"
+          yq -o=json "${work_dir}/ipsec_configs.yaml" | jq . > "${destination_directory}/matrix.json"
 
       - name: Generate Matrix
         id: generate-matrix
@@ -111,7 +108,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -134,19 +131,13 @@ jobs:
 
     timeout-minutes: 75
     steps:
-      - name: Set commit status to pending
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
-        with:
-          sha: ${{ inputs.SHA || github.sha }}
-          status: pending
-
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -172,12 +163,6 @@ jobs:
             SHA="${{ github.sha }}"
           fi
           echo sha=${SHA} >> $GITHUB_OUTPUT
-
-      - name: Resolve full kernel version
-        id: kernel-version
-        uses: ./.github/actions/resolve-kernel-version
-        with:
-          kernel: ${{ matrix.kernel }}
 
       - name: Derive Cilium installation config and junit type
         id: cilium-config
@@ -220,7 +205,7 @@ jobs:
         uses: ./.github/actions/lvh-kind
         with:
           test-name: e2e-conformance
-          kernel: ${{ steps.kernel-version.outputs.full }}
+          kernel: ${{ matrix.kernel }}
           kind-params: "${{ steps.kind-params.outputs.params }}"
           kind-image: ${{ env.KIND_K8S_IMAGE }}
 
@@ -254,7 +239,7 @@ jobs:
           echo "test default: ${CONNECTIVITY_TEST_DEFAULTS}"
 
       - name: Setup bootid file
-        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
+        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
         with:
           provision: 'false'
           cmd: |
@@ -278,7 +263,7 @@ jobs:
           " >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
+        uses: cilium/cilium-cli@024e340cca1465e2a6336521f12370c7ca58c59a # v0.18.7
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -289,7 +274,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -298,7 +283,6 @@ jobs:
             install/kubernetes/cilium
 
       - name: Install Cilium
-        id: install-cilium
         shell: bash
         run: |
           kubectl patch node kind-worker3 --type=json -p='[{"op":"add","path":"/metadata/labels/cilium.io~1no-schedule","value":"true"}]'
@@ -333,7 +317,6 @@ jobs:
           args: ${{ steps.bpftrace-params.outputs.params }} "${{ matrix.ipv4 != 'false' }}" "ipsec"
 
       - name: Run sequential tests (${{ join(matrix.*, ', ') }})
-        id: run-tests
         shell: bash
         run: |
           mkdir -p cilium-junits
@@ -398,7 +381,7 @@ jobs:
         uses: ./.github/actions/conn-disrupt-test-check
         with:
           job-name: ${{ env.job_name }}-${{ matrix.name }}-post-rotate
-          extra-connectivity-test-flags: "${{ steps.vars-conn.outputs.connectivity_test_defaults }}"
+          extra-connectivity-test-flags: ${{ steps.vars-conn.outputs.connectivity_test_defaults }}
 
       - name: Start unencrypted packets check for tests
         uses: ./.github/actions/bpftrace/start
@@ -459,7 +442,7 @@ jobs:
           fi
 
       - name: Run common post steps
-        if: ${{ always() && steps.install-cilium.outcome != 'skipped' }}
+        if: ${{ always() }}
         uses: ./.github/actions/post-logic
         with:
           artifacts_suffix: "${{ matrix.name }}"
@@ -475,4 +458,4 @@ jobs:
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}
-      success: ${{ needs.setup-and-test.result == 'success' }}
+      result: ${{ needs.setup-and-test.result }}

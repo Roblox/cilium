@@ -13,9 +13,6 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
-      base-SHA:
-        description: "SHA of the base branch (target branch of the PR)."
-        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -68,7 +65,7 @@ env:
   contextName2: kind-cluster2-${{ github.run_id }}
 
   # renovate: datasource=github-releases depName=cert-manager/cert-manager
-  CERT_MANAGER_VERSION: v1.19.3
+  CERT_MANAGER_VERSION: v1.18.2
 
 jobs:
   echo-inputs:
@@ -95,7 +92,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -130,7 +127,6 @@ jobs:
             ciliumEndpointSlice: 'enabled'
             policy-default-local-cluster: true
             multipool-ipam: 'enabled'
-            defaultGlobalNamespace: false
 
           - name: '2'
             tunnel: 'disabled'
@@ -145,7 +141,6 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: false
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: true
 
           - name: '3'
             tunnel: 'disabled'
@@ -160,7 +155,6 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: true
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: false
 
           # IPsec encryption is currently not supported in case of ipv6-only clusters (#23553)
           # Wireguard encryption is currently affected by a bug in case of ipv6-only clusters (#23917)
@@ -177,7 +171,6 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: false
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: true
 
           - name: '5'
             tunnel: 'disabled'
@@ -190,7 +183,6 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: true
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: false
 
           - name: '6'
             tunnel: 'vxlan'
@@ -205,7 +197,6 @@ jobs:
             ciliumEndpointSlice: 'enabled'
             policy-default-local-cluster: false
             multipool-ipam: 'enabled'
-            defaultGlobalNamespace: true
 
           - name: '7'
             tunnel: 'geneve'
@@ -220,7 +211,6 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: true
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: false
 
           - name: '8'
             tunnel: 'vxlan'
@@ -235,7 +225,6 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: false
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: true
 
           - name: '9'
             tunnel: 'vxlan'
@@ -250,7 +239,6 @@ jobs:
             ciliumEndpointSlice: 'enabled'
             policy-default-local-cluster: true
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: false
 
           - name: '10'
             tunnel: 'vxlan'
@@ -263,22 +251,15 @@ jobs:
             ciliumEndpointSlice: 'disabled'
             policy-default-local-cluster: true
             multipool-ipam: 'disabled'
-            defaultGlobalNamespace: true
 
     steps:
-      - name: Set commit status to pending
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
-        with:
-          sha: ${{ inputs.SHA || github.sha }}
-          status: pending
-
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -304,12 +285,8 @@ jobs:
       - name: Set up job variables for GHA environment
         id: vars
         run: |
-          # GitHub workflows run on non-LTS kernel that is missing an upstream
-          # fix (c43272299488) for IPsec + BPF Host Routing, thus we need to
-          # fallback to legacy host routing if IPsec is enabled.
           CILIUM_INSTALL_DEFAULTS="${{ steps.default_vars.outputs.cilium_install_defaults }} \
             --helm-set=kubeProxyReplacement=${{ matrix.kube-proxy == 'none' }} \
-            --helm-set=bpf.hostLegacyRouting=${{ matrix.kube-proxy != 'none' || matrix.encryption == 'ipsec' }} \
             --helm-set=bpf.masquerade=${{ matrix.kube-proxy == 'none' }} \
             --helm-set=hubble.enabled=true \
             --helm-set=hubble.relay.enabled=true \
@@ -318,7 +295,6 @@ jobs:
             --helm-set=hubble.tls.auto.certManagerIssuerRef.kind=Issuer \
             --helm-set=hubble.tls.auto.certManagerIssuerRef.name=cilium \
             --helm-set=clustermesh.useAPIServer=${{ matrix.mode != 'external' }} \
-            --helm-set=clustermesh.config.enabled=true \
             --helm-set=clustermesh.apiserver.kvstoremesh.enabled=${{ matrix.mode == 'kvstoremesh' }} \
             --helm-set=clustermesh.maxConnectedClusters=${{ matrix.maxConnectedClusters }} \
             --helm-set=clustermesh.enableEndpointSliceSynchronization=true \
@@ -330,7 +306,6 @@ jobs:
             --helm-set=ciliumEndpointSlice.enabled=${{ matrix.ciliumEndpointSlice == 'enabled'}} \
             --helm-set=extraConfig.clustermesh-sync-timeout=5m \
             --helm-set=extraConfig.lb-init-wait-timeout=4m \
-            --helm-set=clustermesh.defaultGlobalNamespace=${{ matrix.defaultGlobalNamespace }} \
             "
 
           CILIUM_INSTALL_TUNNEL=" \
@@ -379,12 +354,7 @@ jobs:
 
           CILIUM_INSTALL_INGRESS=""
           if [ "${{ matrix.kube-proxy }}" == "none" ]; then
-            CILIUM_INSTALL_INGRESS="--helm-set=ingressController.enabled=true --helm-set=ingressController.service.type=NodePort"
-          fi
-
-          CILIUM_INSTALL_WAIT=""
-          if [ "${{ matrix.tls-auto-method }}" != "certmanager" ]; then
-            CILIUM_INSTALL_WAIT="--wait"
+            CILIUM_INSTALL_INGRESS="--helm-set=ingressController.enabled=true"
           fi
 
           CILIUM_INSTALL_MULTIPOOL_IPAM=""
@@ -432,7 +402,7 @@ jobs:
               --test='!/pod-to-cidr'"
           fi
 
-          echo cilium_install_defaults="${CILIUM_INSTALL_WAIT} ${CILIUM_INSTALL_DEFAULTS} ${CILIUM_INSTALL_TUNNEL} \
+          echo cilium_install_defaults="${CILIUM_INSTALL_DEFAULTS} ${CILIUM_INSTALL_TUNNEL} \
             ${CILIUM_INSTALL_IPFAMILY} ${CILIUM_INSTALL_ENCRYPTION} ${CILIUM_INSTALL_INGRESS} ${CILIUM_INSTALL_MULTIPOOL_IPAM}" >> $GITHUB_OUTPUT
           echo cilium_install_multipool_ipam_cluster1="${CILIUM_INSTALL_MULTIPOOL_IPAM_CLUSTER1}" >> $GITHUB_OUTPUT
           echo cilium_install_multipool_ipam_cluster2="${CILIUM_INSTALL_MULTIPOOL_IPAM_CLUSTER2}" >> $GITHUB_OUTPUT
@@ -459,7 +429,7 @@ jobs:
             envsubst < ./.github/kind-config.yaml.tmpl > ./.github/kind-config-cluster2.yaml
 
       - name: Create Kind cluster 1
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: ${{ env.clusterName1 }}
           version: ${{ env.KIND_VERSION }}
@@ -469,7 +439,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Create Kind cluster 2
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: ${{ env.clusterName2 }}
           version: ${{ env.KIND_VERSION }}
@@ -479,7 +449,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
+        uses: cilium/cilium-cli@024e340cca1465e2a6336521f12370c7ca58c59a # v0.18.7
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -553,9 +523,6 @@ jobs:
             CRD_URL="https://github.com/cert-manager/cert-manager/releases/download/${{ env.CERT_MANAGER_VERSION }}/cert-manager.crds.yaml"
             kubectl --context $ctx apply -f $CRD_URL
 
-            # Wait for the CRDs to have been processed by the Kubernetes API Server.
-            kubectl --context $ctx wait --for condition=established --timeout=1m crds --all
-
             # Create the Cilium CA secret
             kubectl --context $ctx create -n kube-system secret tls cilium-root-ca \
               --key=cilium-ca-key.pem --cert=cilium-ca-crt.pem
@@ -578,7 +545,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -681,7 +648,6 @@ jobs:
           echo "total_drops=$total_drops" >> $GITHUB_OUTPUT
 
       - name: Run connectivity test (${{ join(matrix.*, ', ') }})
-        id: run-tests
         run: |
           cilium --context ${{ env.contextName1 }} connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} \
           --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}).xml" \
@@ -750,7 +716,7 @@ jobs:
         shell: bash {0} # Disable default fail-fast behaviour so that all commands run independently
 
       - name: Run common post steps
-        if: ${{ always() && steps.install-cilium-cluster1.outcome != 'skipped' }}
+        if: ${{ always() }}
         uses: ./.github/actions/post-logic
         with:
           artifacts_suffix: "${{ matrix.name }}"
@@ -767,4 +733,4 @@ jobs:
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}
-      success: ${{ needs.installation-and-connectivity.result == 'success' }}
+      result: ${{ needs.installation-and-connectivity.result }}

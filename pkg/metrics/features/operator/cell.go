@@ -13,15 +13,19 @@ import (
 	operatorOption "github.com/cilium/cilium/operator/option"
 	ciliumenvoyconfig2 "github.com/cilium/cilium/operator/pkg/ciliumenvoyconfig"
 	"github.com/cilium/cilium/operator/pkg/ingress"
-	"github.com/cilium/cilium/operator/pkg/lbipam"
-	"github.com/cilium/cilium/operator/pkg/nodeipam"
 	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
+	"github.com/cilium/cilium/pkg/lbipamconfig"
 	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/nodeipamconfig"
 )
 
 var (
 	// withDefaults will set enable all default metrics in the operator.
 	withDefaults = os.Getenv("CILIUM_FEATURE_METRICS_WITH_DEFAULTS")
+
+	// withoutEnvVersion can be used to disable metrics that express environment
+	// version info from the host, such as Kubernetes version.
+	withoutEnvVersion = os.Getenv("CILIUM_FEATURE_METRICS_WITHOUT_ENV_VERSION")
 )
 
 // Cell will retrieve information from all other cells /
@@ -38,10 +42,9 @@ var Cell = cell.Module(
 		},
 	),
 	metrics.Metric(func() Metrics {
-		if withDefaults != "" {
-			return NewMetrics(true)
-		}
-		return NewMetrics(false)
+		showDefaults := withDefaults != ""
+		showEnvVersion := withoutEnvVersion == ""
+		return NewMetrics(showDefaults, showEnvVersion)
 	}),
 )
 
@@ -57,9 +60,9 @@ type featuresParams struct {
 	OperatorConfig *operatorOption.OperatorConfig
 
 	IngressController ingress.IngressConfig
-	LBIPAM            lbipam.Config
+	LBIPAM            lbipamconfig.Config
 	LBConfig          ciliumenvoyconfig2.LoadBalancerConfig
-	NodeIPAM          nodeipam.NodeIPAMConfig
+	NodeIPAM          nodeipamconfig.NodeIPAMConfig
 }
 
 func (p featuresParams) IsIngressControllerEnabled() bool {

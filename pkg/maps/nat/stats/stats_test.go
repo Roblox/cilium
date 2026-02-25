@@ -16,7 +16,6 @@ import (
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/maps/nat"
-	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/testutils"
 	"github.com/cilium/cilium/pkg/tuple"
 	"github.com/cilium/cilium/pkg/types"
@@ -25,7 +24,7 @@ import (
 
 func Test_topk(t *testing.T) {
 	top5 := newTopK(5)
-	for i := byte(0); i < 10; i++ {
+	for i := range byte(10) {
 		ip := types.IPv4{10, 0, 0, i}
 		k := SNATTuple4{
 			DestAddr: ip,
@@ -51,8 +50,8 @@ func TestPrivilegedCountNat(t *testing.T) {
 		ip6Map.UnpinIfExists()
 	})
 
-	for addr := byte(0); addr < 20; addr++ {
-		for i := uint16(0); i < uint16(addr); i++ {
+	for addr := range byte(20) {
+		for i := range uint16(addr) {
 			ip := types.IPv4{10, 0, 0, addr}
 			mapKey := &nat.NatKey4{}
 			mapKey.TupleKey4.SourceAddr = ip
@@ -104,12 +103,8 @@ func TestPrivilegedCountNat(t *testing.T) {
 	h := hive.New(
 		cell.Provide(newTables),
 		cell.Provide(func() loadbalancer.Config { return loadbalancer.DefaultConfig }),
-		cell.Provide(func() (promise.Promise[nat.NatMap4], promise.Promise[nat.NatMap6], Config, natMetrics) {
-			r4, p4 := promise.New[nat.NatMap4]()
-			r6, p6 := promise.New[nat.NatMap6]()
-			r4.Resolve(ip4Map)
-			r6.Resolve(ip6Map)
-			return p4, p6, Config{NATMapStatInterval: 30 * time.Second, NatMapStatKStoredEntries: 10}, ms
+		cell.Provide(func() (nat.NatMap4, nat.NatMap6, Config, natMetrics) {
+			return ip4Map, ip6Map, Config{NATMapStatInterval: 30 * time.Second, NatMapStatKStoredEntries: 10}, ms
 		}),
 		cell.Provide(newStats),
 		cell.Invoke(func(s *Stats, lc cell.Lifecycle) {

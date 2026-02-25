@@ -38,13 +38,13 @@ import (
 
 var (
 	dummyNodeCfg = datapath.LocalNodeConfiguration{
-		NodeIPv4:            ipv4DummyAddr.AsSlice(),
-		NodeIPv6:            ipv6DummyAddr.AsSlice(),
-		CiliumInternalIPv4:  ipv4DummyAddr.AsSlice(),
-		CiliumInternalIPv6:  ipv6DummyAddr.AsSlice(),
+		NodeIPv4:            ipv4DummyAddr,
+		NodeIPv6:            ipv6DummyAddr,
+		CiliumInternalIPv4:  ipv4DummyAddr,
+		CiliumInternalIPv6:  ipv6DummyAddr,
 		AllocCIDRIPv4:       cidr.MustParseCIDR("10.147.0.0/16"),
-		ServiceLoopbackIPv4: ipv4DummyAddr.AsSlice(),
-		ServiceLoopbackIPv6: ipv6DummyAddr.AsSlice(),
+		ServiceLoopbackIPv4: ipv4DummyAddr,
+		ServiceLoopbackIPv6: ipv6DummyAddr,
 		Devices:             []*tables.Device{},
 		NodeAddresses:       []tables.NodeAddress{},
 		HostEndpointID:      1,
@@ -64,7 +64,7 @@ func setupConfigSuite(tb testing.TB) {
 
 	require.NoError(tb, rlimit.RemoveMemlock(), "Failed to remove memory limits")
 
-	option.Config.EnableHostLegacyRouting = true // Disable obtaining direct routing device.
+	option.Config.UnsafeDaemonConfigOption.EnableHostLegacyRouting = true // Disable obtaining direct routing device.
 }
 
 type badWriter struct{}

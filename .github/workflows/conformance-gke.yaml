@@ -8,12 +8,21 @@ on:
         description: "Pull request number."
         required: false
         type: string
+      UID:
+        description: "A second number, to differentiate multiple runs of the same workflow by the same PR"
+        required: false
+        default: 1
+        type: number
       context-ref:
         description: "Context in which the workflow runs. If PR is from a fork, will be the PR target branch (general case). If PR is NOT from a fork, will be the PR branch itself (this allows committers to test changes to workflows directly from PRs)."
         required: false
         type: string
       SHA:
         description: "SHA under test (head of the PR branch)."
+        required: false
+        type: string
+      base-SHA:
+        description: "SHA of the base branch (target branch of the PR)."
         required: false
         type: string
       extra-args:
@@ -32,12 +41,19 @@ on:
       PR-number:
         description: "Pull request number."
         required: true
+      UID:
+        description: "A second number, to differentiate multiple runs of the same workflow by the same PR"
+        required: false
+        default: 1
       context-ref:
         description: "Context in which the workflow runs. If PR is from a fork, will be the PR target branch (general case). If PR is NOT from a fork, will be the PR branch itself (this allows committers to test changes to workflows directly from PRs)."
         required: true
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
+      base-SHA:
+        description: "SHA of the base branch (target branch of the PR)."
+        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -83,13 +99,14 @@ concurrency:
       (github.event_name == 'schedule' && github.sha) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number)
     }}
+    ${{ inputs.UID }}
   cancel-in-progress: true
 
 env:
-  clusterName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+  clusterName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-${{ inputs.UID }}-${{ github.run_attempt }}
   USE_GKE_GCLOUD_AUTH_PLUGIN: True
   # renovate: datasource=docker depName=google/cloud-sdk
-  gcloud_version: 541.0.0
+  gcloud_version: 557.0.0
 
 jobs:
   echo-inputs:
@@ -118,7 +135,7 @@ jobs:
       empty: ${{ steps.set-matrix.outputs.empty }}
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -147,7 +164,10 @@ jobs:
           # main -> event_name = schedule
           # other stable branches -> PR-number starting with v (e.g. v1.14)
           VERSIONS=$(echo ${{ inputs.extra-args }} | awk -F'=' '{print $2}')
-          IPSEC=$(echo '${{ inputs.extra-args }}' | jq -r '.["ipsec"] // empty')
+          IPSEC=$(echo '${{ inputs.extra-args }}' | sed 's/^""$/{}/' | jq -r '.["ipsec"] // false')
+          WG=$(echo '${{ inputs.extra-args }}' | sed 's/^""$/{}/' | jq -r '.["wireguard"] // false')
+          KPR=$(echo '${{ inputs.extra-args }}' | sed 's/^""$/{}/' | jq -r '.["kpr"] // false')
+          ADV_FEAT=$(echo '${{ inputs.extra-args }}' | sed 's/^""$/{}/' | jq -r '.["advanced-features"] // false')
 
           # shellcheck disable=SC2193
           if [[ "${{ github.event_name }}" == "schedule" || "${{ inputs.PR-number }}" == v* || "$VERSIONS" == "all" ]];then
@@ -159,17 +179,27 @@ jobs:
           # Add IPsec options to all configurations if ipsec is true
           if [[ "$IPSEC" == "true" ]]; then
             echo "::notice::IPsec enabled - setting ipsec=true for all matrix entries"
-            echo "Adding IPsec encryption options to all configurations"
-            jq '.config |= map(
-              # Add -ipsec suffix to type unless it already contains ipsec
-              .type = (if (.type | test("ipsec")) then .type else .type + "-ipsec" end) |
-              # Add IPsec helm options to cilium-install-opts
-              if .["cilium-install-opts"] then
-                .["cilium-install-opts"] += " --helm-set=encryption.enabled=true --helm-set=encryption.type=ipsec"
-              else
-                .["cilium-install-opts"] = "--helm-set=encryption.enabled=true --helm-set=encryption.type=ipsec"
-              end
-            )' /tmp/matrix.json > /tmp/matrix.json.tmp
+            jq '.config |= map(. + {"ipsec": true})' /tmp/matrix.json > /tmp/matrix.json.tmp
+            mv /tmp/matrix.json.tmp /tmp/matrix.json
+          fi
+
+          # Add WireGuard options to all configurations if wireguard is true
+          if [[ "$WG" == "true" ]]; then
+            echo "::notice::WireGuard enabled - setting wireguard=true for all matrix entries"
+            jq '.config |= map(. + {"wireguard": true})' /tmp/matrix.json > /tmp/matrix.json.tmp
+            mv /tmp/matrix.json.tmp /tmp/matrix.json
+          fi
+
+          # Add KPR options to all configurations if kpr is true
+          if [[ "$KPR" == "true" ]]; then
+            echo "::notice::KPR enabled - setting kpr=true for all matrix entries"
+            jq '.config |= map(. + {"kpr": true})' /tmp/matrix.json > /tmp/matrix.json.tmp
+            mv /tmp/matrix.json.tmp /tmp/matrix.json
+          fi
+
+          # Enable advanced features if requested
+          if [[ "$ADV_FEAT" == "true" ]]; then
+            jq '.config |= map(. + {"advanced-features": true})' /tmp/matrix.json > /tmp/matrix.json.tmp
             mv /tmp/matrix.json.tmp /tmp/matrix.json
           fi
 
@@ -182,13 +212,13 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_PR_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_PR_SA }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
           create_credentials_file: true
           export_environment_variables: true
 
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
           version: ${{ env.gcloud_version }}
 
       - name: Filter Matrix
@@ -229,7 +259,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -253,13 +283,19 @@ jobs:
       matrix: ${{fromJson(needs.generate-matrix.outputs.matrix)}}
 
     steps:
+      - name: Set commit status to pending
+        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
+        with:
+          sha: ${{ inputs.SHA || github.sha }}
+          status: pending
+
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -303,6 +339,28 @@ jobs:
             --helm-set=loadBalancer.l7.backend=envoy \
             --wait=false"
 
+          if [[ ${{ matrix.config.type }} == "tunnel" ]]; then
+            CILIUM_INSTALL_DEFAULTS+=" --datapath-mode=tunnel"
+          fi
+
+          if [[ "${{ matrix.ipsec }}" == "true" ]]; then
+            CILIUM_INSTALL_DEFAULTS+=" --helm-set encryption.enabled=true --helm-set encryption.type=ipsec"
+          fi
+          if [[ "${{ matrix.wireguard }}" == "true" ]]; then
+            CILIUM_INSTALL_DEFAULTS+=" --helm-set encryption.enabled=true --helm-set encryption.type=wireguard"
+          fi
+
+          if [[ "${{ matrix.kpr }}" == "true" ]]; then
+            CILIUM_INSTALL_DEFAULTS+=" --helm-set kubeProxyReplacement=true"
+          fi
+
+          if [[ "${{ matrix.advanced-features }}" == "true" ]]; then
+            CILIUM_INSTALL_DEFAULTS+=" --helm-set bpf.masquerade=true \
+              --helm-set enableIPv4Masquerade=true \
+              --helm-set localRedirectPolicies.enabled=true \
+              --helm-set egressGateway.enabled=true"
+          fi
+
           CONNECTIVITY_TEST_DEFAULTS="${{ steps.e2e_config.outputs.test_flags }}"
 
           echo cilium_install_defaults=${CILIUM_INSTALL_DEFAULTS} >> $GITHUB_OUTPUT
@@ -317,13 +375,13 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_PR_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_PR_SA }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
           create_credentials_file: true
           export_environment_variables: true
 
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
           version: ${{ env.gcloud_version }}
 
       - name: Install gke-gcloud-auth-plugin
@@ -346,7 +404,7 @@ jobs:
           labels: "usage=${{ github.repository_owner }}-${{ github.event.repository.name }},owner=${{ steps.vars.outputs.owner }}"
 
       - name: Create ESP allow firewall rule
-        if: ${{ matrix.config.type == 'tunnel-ipsec' }}
+        if: ${{ matrix.config.ipsec == 'true' }}
         uses: ./.github/actions/gke-create-esp-rule
         with:
           cluster_name: ${{ env.clusterName }}-${{ matrix.config.index }}
@@ -363,7 +421,7 @@ jobs:
           kubeconfig: "~/.kube/config"
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@024e340cca1465e2a6336521f12370c7ca58c59a # v0.18.7
+        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -375,7 +433,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -384,7 +442,7 @@ jobs:
             install/kubernetes/cilium
 
       - name: Create custom IPsec secret
-        if: ${{ contains(fromJSON('["no-tunnel-ipsec", "tunnel-ipsec", "tunnel-ingress-controller-ipsec"]'), matrix.config.type) }}
+        if: ${{ matrix.config.ipsec == 'true' }}
         run: |
           cilium encrypt create-key --auth-algo rfc4106-gcm-aes
 
@@ -404,20 +462,22 @@ jobs:
           mkdir -p cilium-junits
 
       - name: Run connectivity test (${{ matrix.k8s.version }}, ${{ matrix.config.index }}, ${{ matrix.config.type }})
+        id: run-tests
         run: |
           cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} \
           --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.k8s.*, ', ') }}, ${{ join(matrix.config.*, ', ') }}).xml" \
           --junit-property github_job_step="Run connectivity test (${{ matrix.k8s.version }}, ${{ matrix.config.index }}, ${{ matrix.config.type }})"
 
       - name: Run common post steps
-        if: ${{ always() }}
+        if: ${{ always() && steps.install-cilium.outcome != 'skipped' }}
         uses: ./.github/actions/post-logic
         with:
-          artifacts_suffix: "${{ env.job_name }} (${{ join(matrix.k8s.*, ', ') }}, ${{ matrix.config.type }})"
+          artifacts_suffix: "gke-${{ env.job_name }} (${{ join(matrix.k8s.*, ', ') }}, ${{ matrix.config.type }}, ${{ inputs.UID }})"
           job_status: "${{ job.status }}"
+          capture_features_tested: ${{ steps.run-tests.outcome != 'skipped' }}
 
       - name: Clean up ESP allow firewall rule
-        if: ${{ always() && matrix.config.type == 'tunnel-ipsec' }}
+        if: ${{ always() && matrix.config.ipsec == 'true' }}
         uses: ./.github/actions/gke-clean-esp-rule
         with:
           cluster_name: ${{ env.clusterName }}-${{ matrix.config.index }}
@@ -435,10 +495,24 @@ jobs:
   merge-upload-and-status:
     name: Merge Upload and Status
     if: ${{ always() && !inputs.is-workflow-call }}
-    needs: installation-and-connectivity
+    needs: [generate-matrix, installation-and-connectivity]
     uses: ./.github/workflows/common-post-jobs.yaml
     secrets: inherit
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}
-      result: ${{ needs.installation-and-connectivity.result }}
+      # The generate-matrix can be legitimately empty on older branches, so we
+      # consider that as success. On older branches the generated matrix will
+      # get fewer entries since the k8s versions will reach EOL and get removed
+      # from the matrix.
+      success: >-
+        ${{
+          needs.generate-matrix.result == 'success' &&
+        (
+          needs.installation-and-connectivity.result == 'success'
+          ||
+          (
+            needs.generate-matrix.outputs.empty == 'true' &&
+            github.ref_name != github.event.repository.default_branch
+          )
+        ) }}

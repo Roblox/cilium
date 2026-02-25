@@ -27,12 +27,17 @@ import (
 	k8s2 "github.com/cilium/cilium/pkg/policy/k8s"
 	policytypes "github.com/cilium/cilium/pkg/policy/types"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/version"
 	wgTypes "github.com/cilium/cilium/pkg/wireguard/types"
 )
 
 var (
 	// withDefaults will set enable all default metrics in the agent.
 	withDefaults = os.Getenv("CILIUM_FEATURE_METRICS_WITH_DEFAULTS")
+
+	// withoutEnvVersion can be used to disable any metric that expresses
+	// host-specific data, such as kernel version.
+	withoutEnvVersion = os.Getenv("CILIUM_FEATURE_METRICS_WITHOUT_ENV_VERSION")
 )
 
 // Cell will retrieve information from all other cells /
@@ -67,10 +72,9 @@ var Cell = cell.Module(
 		},
 	),
 	metrics.Metric(func() Metrics {
-		if withDefaults != "" {
-			return NewMetrics(true)
-		}
-		return NewMetrics(false)
+		showDefaults := withDefaults != ""
+		showEnvVersion := withoutEnvVersion == ""
+		return NewMetrics(showDefaults, showEnvVersion)
 	}),
 )
 
@@ -95,6 +99,7 @@ type featuresParams struct {
 	DynamicConfigSource dynamicconfig.ConfigSource
 	WgConfig            wgTypes.WireguardConfig
 	IPsecConfig         types.IPsecConfig
+	ConnectorConfig     types.ConnectorConfig
 }
 
 func (fp *featuresParams) TunnelProtocol() tunnel.EncapProtocol {
@@ -125,6 +130,22 @@ func (fp *featuresParams) IsDynamicConfigSourceKindNodeConfig() bool {
 	return fp.DynamicConfigSource.IsKindNodeConfig()
 }
 
+func (fp *featuresParams) DatapathConfiguredMode() string {
+	return fp.ConnectorConfig.GetConfiguredMode().String()
+}
+
+func (fp *featuresParams) DatapathOperationalMode() string {
+	return fp.ConnectorConfig.GetOperationalMode().String()
+}
+
+func (fp *featuresParams) KernelVersion() string {
+	kernelVersion, err := version.GetKernelVersion()
+	if err != nil {
+		return kernelVersionUnknown
+	}
+	return kernelVersion.String()
+}
+
 type enabledFeatures interface {
 	TunnelProtocol() tunnel.EncapProtocol
 	GetChainingMode() string
@@ -133,4 +154,7 @@ type enabledFeatures interface {
 	BigTCPConfig() types.BigTCPConfig
 	IsL2PodAnnouncementEnabled() bool
 	IsDynamicConfigSourceKindNodeConfig() bool
+	DatapathConfiguredMode() string
+	DatapathOperationalMode() string
+	KernelVersion() string
 }

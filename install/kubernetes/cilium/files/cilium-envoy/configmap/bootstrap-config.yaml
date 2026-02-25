@@ -167,6 +167,8 @@ staticResources:
     circuitBreakers:
       thresholds:
       - maxRetries: {{ .Values.envoy.maxConcurrentRetries }}
+        maxConnections: {{ .Values.envoy.clusterMaxConnections }}
+        maxRequests: {{ .Values.envoy.clusterMaxRequests }}
     lbPolicy: "CLUSTER_PROVIDED"
     typedExtensionProtocolOptions:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
@@ -183,6 +185,8 @@ staticResources:
     circuitBreakers:
       thresholds:
       - maxRetries: {{ .Values.envoy.maxConcurrentRetries }}
+        maxConnections: {{ .Values.envoy.clusterMaxConnections }}
+        maxRequests: {{ .Values.envoy.clusterMaxRequests }}
     lbPolicy: "CLUSTER_PROVIDED"
     typedExtensionProtocolOptions:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
@@ -204,6 +208,8 @@ staticResources:
     circuitBreakers:
       thresholds:
       - maxRetries: {{ .Values.envoy.maxConcurrentRetries }}
+        maxConnections: {{ .Values.envoy.clusterMaxConnections }}
+        maxRequests: {{ .Values.envoy.clusterMaxRequests }}
     lbPolicy: "CLUSTER_PROVIDED"
     typedExtensionProtocolOptions:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
@@ -220,6 +226,8 @@ staticResources:
     circuitBreakers:
       thresholds:
       - maxRetries: {{ .Values.envoy.maxConcurrentRetries }}
+        maxConnections: {{ .Values.envoy.clusterMaxConnections }}
+        maxRequests: {{ .Values.envoy.clusterMaxRequests }}
     lbPolicy: "CLUSTER_PROVIDED"
     typedExtensionProtocolOptions:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
@@ -292,7 +300,7 @@ overloadManager:
   - name: "envoy.resource_monitors.global_downstream_max_connections"
     typedConfig:
       "@type": "type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig"
-      max_active_downstream_connections: "50000"
+      max_active_downstream_connections: "{{ .Values.envoy.maxGlobalDownstreamConnections }}"
 applicationLogConfig:
   logFormat:
     {{- if .Values.envoy.log.format_json }}

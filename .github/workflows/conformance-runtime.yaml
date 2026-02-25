@@ -13,6 +13,9 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
+      base-SHA:
+        description: "SHA of the base branch (target branch of the PR)."
+        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -60,7 +63,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.25.1
+  go-version: 1.26.0
 
 jobs:
   echo-inputs:
@@ -88,7 +91,7 @@ jobs:
     name: Build Ginkgo Runtime
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -110,7 +113,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -120,7 +123,7 @@ jobs:
 
       # Load Ginkgo build from GitHub
       - name: Load ginkgo runtime from GH cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: cache
         with:
           path: /tmp/.ginkgo-build/
@@ -128,10 +131,10 @@ jobs:
 
       - name: Install Go
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.25.1
+          go-version: 1.26.0
 
       - name: Build Ginkgo
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
@@ -177,62 +180,44 @@ jobs:
       job_name: "Runtime Test (${{matrix.focus}})"
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 2
       matrix:
         focus:
-          - "agent"
           - "datapath"
           - "privileged"
 
         include:
           ###
-          # RuntimeAgentFQDNPolicies Can update L7 DNS policy rules
-          # RuntimeAgentFQDNPolicies DNS proxy policy works if Cilium stops
-          # RuntimeAgentFQDNPolicies Interaction with other ToCIDR rules
-          # RuntimeAgentFQDNPolicies toFQDNs populates toCIDRSet (data from proxy) Policy addition after DNS lookup
-          # RuntimeAgentFQDNPolicies Validate dns-proxy monitor information
-          # RuntimeAgentPolicies Init Policy Default Drop Test tests egress
-          # RuntimeAgentPolicies Init Policy Default Drop Test tests ingress
-          # RuntimeAgentPolicies Init Policy Default Drop Test With PolicyAuditMode tests egress
-          # RuntimeAgentPolicies Init Policy Default Drop Test With PolicyAuditMode tests ingress
-          # RuntimeAgentPolicies Init Policy Test Init Egress Policy Test
-          # RuntimeAgentPolicies Init Policy Test Init Ingress Policy Test
-          # RuntimeAgentPolicies TestsEgressToHost Tests Egress To Host
-          # RuntimeAgentPolicies TestsEgressToHost Tests egress with CIDR+L4 policy
-          # RuntimeAgentPolicies TestsEgressToHost Tests egress with CIDR+L4 policy to external https service
-          # RuntimeAgentPolicies TestsEgressToHost Tests egress with CIDR+L7 policy
-          # RuntimeAgentPolicies Tests Endpoint Connectivity Functions After Daemon Configuration Is Updated
-          # RuntimeAgentPolicies Tests EntityNone as a deny-all
-          - focus: "agent"
-            cliFocus: "RuntimeAgent"
-            # TODO: not updated by by renovate, investigate why the tests fail on newer images
-            lvhImage: "6.12-20241218.004849"
-
-          ###
           # RuntimeDatapathMonitorTest With Sample Containers checks container ids match monitor output
           # RuntimeDatapathMonitorTest With Sample Containers cilium-dbg monitor check --from
           # RuntimeDatapathMonitorTest With Sample Containers cilium-dbg monitor check --related-to
           # RuntimeDatapathMonitorTest With Sample Containers cilium-dbg monitor check --to
-          # RuntimeDatapathMonitorTest With Sample Containers Cilium monitor event types
           # RuntimeDatapathMonitorTest With Sample Containers delivers the same information to multiple monitors
           - focus: "datapath"
             cliFocus: "RuntimeDatapathMonitorTest"
             # TODO: not updated by by renovate, investigate why the tests fail on newer images
+            #  see https://github.com/cilium/cilium/issues/38058
             lvhImage: "6.12-20241218.004849"
 
           - focus: "privileged"
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            lvhImage: "6.12-20250807.134150"
+            lvhImage: "6.18-20260217.190018"
 
     timeout-minutes: 50
     steps:
+      - name: Set commit status to pending
+        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
+        with:
+          sha: ${{ inputs.SHA || github.sha }}
+          status: pending
+
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -257,13 +242,13 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
 
       - name: Provision LVH VMs
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           test-name: runtime-tests
           install-dependencies: true
@@ -272,12 +257,12 @@ jobs:
           images-folder-parent: "/tmp"
           cpu: 4
           # renovate: datasource=github-tags depName=cilium/little-vm-helper
-          lvh-version: "v0.0.26"
+          lvh-version: "v0.0.28"
           mem: 14G
 
       # Load Ginkgo build from GitHub
       - name: Load ${{ matrix.focus }} Ginkgo build from GitHub
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: cache
         with:
           path: /tmp/.ginkgo-build/
@@ -285,11 +270,11 @@ jobs:
 
       - name: Install Go
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.25.1
+          go-version: 1.26.0
 
       - name: Build Ginkgo
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
@@ -326,7 +311,7 @@ jobs:
       # Load Golang cache build from GitHub
       - name: Load Golang cache build from GitHub
         if: ${{ matrix.focus == 'privileged' }}
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -352,7 +337,7 @@ jobs:
 
       - name: Setup runtime
         timeout-minutes: 10
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           provision: 'false'
           cmd: |
@@ -372,7 +357,7 @@ jobs:
             service docker restart
 
       - name: Runtime tests
-        if: ${{ matrix.focus == 'agent' || matrix.focus == 'datapath' }}
+        if: ${{ matrix.focus == 'datapath' }}
         timeout-minutes: 20
         shell: bash
         run: |
@@ -407,7 +392,7 @@ jobs:
         id: prepare-tests
         if: ${{ matrix.focus == 'privileged' }}
         timeout-minutes: 10
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           provision: 'false'
           cmd: |
@@ -432,18 +417,18 @@ jobs:
         id: run-tests
         if: ${{ matrix.focus == 'privileged' }}
         timeout-minutes: 40
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           provision: 'false'
           cmd: |
             cd /host
-            make GOCACHE="/go-caches/go-build" GOMODCACHE="/go-caches/pkg" SKIP_COVERAGE=1 LOG_CODEOWNERS=1 JUNIT_PATH="test/${{ env.job_name }}.xml" tests-privileged-only GO=go${{ env.go-version }}
+            make TMPDIR=/var/tmp GOCACHE="/go-caches/go-build" GOMODCACHE="/go-caches/pkg" SKIP_COVERAGE=1 LOG_CODEOWNERS=1 JUNIT_PATH="test/${{ env.job_name }}.xml" tests-privileged-only GO=go${{ env.go-version }}
 
       - name: Copy Go cache to host
         id: copy-go-cache
         if: ${{ steps.go-cache.outputs.cache-hit != 'true' && matrix.focus == 'privileged' }}
         timeout-minutes: 10
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           provision: 'false'
           cmd: |
@@ -465,8 +450,8 @@ jobs:
           ls -lah "${GOMODCACHE}" || true
 
       - name: Copy tested features
-        if: ${{ matrix.focus == 'agent' || matrix.focus == 'datapath' }}
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        if: ${{ matrix.focus == 'datapath' }}
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           provision: 'false'
           cmd: |
@@ -477,10 +462,10 @@ jobs:
 
       - name: Debug failure on VM
         # Only debug the failure on the LVH that have Cilium running as a service,
-        # which is 'agent' and 'datapath' focus.
-        if:  ${{ !success() && (matrix.focus == 'agent' || matrix.focus == 'datapath') }}
+        # which is 'datapath' focus.
+        if:  ${{ !success() && matrix.focus == 'datapath' }}
         timeout-minutes: 10
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
+        uses: cilium/little-vm-helper@ad43ff511dd5365a0011ae9f864ec959c36daebf # v0.0.28
         with:
           provision: 'false'
           cmd: |
@@ -488,7 +473,7 @@ jobs:
             systemctl status cilium.service
 
       - name: Fetch artifacts
-        if: ${{ !success() && (matrix.focus == 'agent' || matrix.focus == 'datapath') }}
+        if: ${{ !success() && matrix.focus == 'datapath' }}
         shell: bash
         run: |
           if [ -e ./test/test_results ];then
@@ -498,8 +483,8 @@ jobs:
           fi
 
       - name: Upload artifacts
-        if: ${{ !success() && (matrix.focus == 'agent' || matrix.focus == 'datapath') }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !success() && matrix.focus == 'datapath' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cilium-sysdumps-${{ matrix.focus }}
           path: |
@@ -520,14 +505,14 @@ jobs:
 
       - name: Upload JUnits [junit]
         if: ${{ always() && steps.run-tests.outcome != 'skipped' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cilium-junits-${{ matrix.focus }}
           path: cilium-junits/*.xml
 
       - name: Upload features tested
-        if: ${{ always() && (matrix.focus == 'agent' || matrix.focus == 'datapath') }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ always() && matrix.focus == 'datapath' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: features-tested-${{ matrix.focus }}
           path: features-tested-${{ env.job_name }}*.json
@@ -545,7 +530,7 @@ jobs:
     needs: setup-and-test
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false

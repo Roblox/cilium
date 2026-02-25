@@ -5,13 +5,16 @@ package types
 
 import (
 	"net"
+	"net/netip"
 
 	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/datapath/tables"
+	"github.com/cilium/cilium/pkg/datapath/tunnel"
 	"github.com/cilium/cilium/pkg/datapath/xdp"
 	"github.com/cilium/cilium/pkg/kpr"
 	"github.com/cilium/cilium/pkg/loadbalancer"
+	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/maglev"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/svcrouteconfig"
@@ -20,7 +23,6 @@ import (
 type MTUConfiguration interface {
 	GetDeviceMTU() int
 	GetRouteMTU() int
-	GetRoutePostEncryptMTU() int
 }
 
 // LocalNodeConfiguration represents the configuration of the local node
@@ -30,24 +32,41 @@ type MTUConfiguration interface {
 // and passed down.
 //
 // +deepequal-gen=true
+// +deepequal-gen:private-method=true
 type LocalNodeConfiguration struct {
 	// NodeIPv4 is the primary IPv4 address of this node.
 	// Mutable at runtime.
-	NodeIPv4 net.IP
+	// +deepequal-gen=false
+	NodeIPv4 netip.Addr
 
 	// NodeIPv6 is the primary IPv6 address of this node.
 	// Mutable at runtime.
-	NodeIPv6 net.IP
+	// +deepequal-gen=false
+	NodeIPv6 netip.Addr
 
 	// CiliumInternalIPv4 is the internal IP address assigned to the cilium_host
 	// interface.
 	// Immutable at runtime.
-	CiliumInternalIPv4 net.IP
+	// +deepequal-gen=false
+	CiliumInternalIPv4 netip.Addr
 
 	// CiliumInternalIPv6 is the internal IP address assigned to the cilium_host
 	// interface.
 	// Immutable at runtime.
-	CiliumInternalIPv6 net.IP
+	// +deepequal-gen=false
+	CiliumInternalIPv6 netip.Addr
+
+	// Interface index of the cilium_host device
+	CiliumHostIfIndex uint32
+
+	// MAC address of the cilium_host device.
+	CiliumHostMAC mac.MAC
+
+	// Interface index of the cilium_net device
+	CiliumNetIfIndex uint32
+
+	// MAC address of the cilium_net device.
+	CiliumNetMAC mac.MAC
 
 	// AllocCIDRIPv4 is the IPv4 allocation CIDR from which IP addresses for
 	// endpoints are allocated from.
@@ -69,12 +88,14 @@ type LocalNodeConfiguration struct {
 	// over a Service.
 	//
 	// Immutable at runtime.
-	ServiceLoopbackIPv4 net.IP
+	// +deepequal-gen=false
+	ServiceLoopbackIPv4 netip.Addr
 
 	// ServiceLoopbackIPv6 is the source address used for SNAT when a Pod talks to itself
 	// over a Service.
 	// Immutable at runtime.
-	ServiceLoopbackIPv6 net.IP
+	// +deepequal-gen=false
+	ServiceLoopbackIPv6 netip.Addr
 
 	// Devices is the native network devices selected for datapath use.
 	// Mutable at runtime.
@@ -142,6 +163,19 @@ type LocalNodeConfiguration struct {
 	// subsequent calls to NodeConfigurationChanged().
 	EnableEncapsulation bool
 
+	// TunnelProtocol is the datapath ID of the encapsulation protocol
+	// (0 if disabled, 1 for VXLAN, 2 for Geneve).
+	//
+	// This field is immutable at runtime. The value will not change in
+	// subsequent calls to NodeConfigurationChanged().
+	TunnelProtocol tunnel.BPFEncapProtocol
+
+	// TunnelPort is the UDP port used by the tunnel protocol (0 if disabled).
+	//
+	// This field is immutable at runtime. The value will not change in
+	// subsequent calls to NodeConfigurationChanged().
+	TunnelPort uint16
+
 	// EnableAutoDirectRouting enables the use of direct routes for
 	// communication between nodes if two nodes have direct L2
 	// connectivity.
@@ -168,9 +202,20 @@ type LocalNodeConfiguration struct {
 	// allocation CIDR IPs into Cilium endpoints.
 	EnableLocalNodeRoute bool
 
+	// DatapathIsLayer2 holds the configuration for whether the underlying
+	// connector to Pods on this node operate at Layer 2.
+	DatapathIsLayer2 bool
+
+	// DatapathIsNetkit holds the configuration for whether the underlying
+	// connector to pods on this node is Netkit or not.
+	DatapathIsNetkit bool
+
 	// EnableWireguard is used to check if we need to attach to the native
 	// device and to cilium_wg0.
 	EnableWireguard bool
+
+	// Ephemeral port range minimun.
+	EphemeralMin uint16
 
 	// Index of the cilium_wg0 interface if enabled.
 	WireguardIfIndex uint32
@@ -180,6 +225,13 @@ type LocalNodeConfiguration struct {
 
 	// EncryptNode enables encrypting NodeIP traffic
 	EncryptNode bool
+
+	// EnablePolicyAccounting enables maintaining packet and byte counters for every
+	// policy entry
+	EnablePolicyAccounting bool
+
+	// Enable per flow (conntrack) statistics
+	EnableConntrackAccounting bool
 
 	// IPv4PodSubnets is a list of IPv4 subnets that pod IPs are assigned from
 	// these are then used when encryption is enabled to configure the node
@@ -205,6 +257,34 @@ type LocalNodeConfiguration struct {
 	KPRConfig kpr.KPRConfig
 
 	SvcRouteConfig svcrouteconfig.RoutesConfig
+}
+
+// DeepEqual compares two LocalNodeConfiguration structs for equality.
+func (cfg *LocalNodeConfiguration) DeepEqual(other *LocalNodeConfiguration) bool {
+	if other == nil {
+		return false
+	}
+	// Manually compare netip.Addr fields
+	if cfg.NodeIPv4 != other.NodeIPv4 {
+		return false
+	}
+	if cfg.NodeIPv6 != other.NodeIPv6 {
+		return false
+	}
+	if cfg.CiliumInternalIPv4 != other.CiliumInternalIPv4 {
+		return false
+	}
+	if cfg.CiliumInternalIPv6 != other.CiliumInternalIPv6 {
+		return false
+	}
+	if cfg.ServiceLoopbackIPv4 != other.ServiceLoopbackIPv4 {
+		return false
+	}
+	if cfg.ServiceLoopbackIPv6 != other.ServiceLoopbackIPv6 {
+		return false
+	}
+	// Call generated `deepEqual` method which compares all other fields
+	return cfg.deepEqual(other)
 }
 
 func (cfg *LocalNodeConfiguration) DeviceNames() []string {

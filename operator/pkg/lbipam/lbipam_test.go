@@ -59,6 +59,10 @@ func TestConflictResolution(t *testing.T) {
 		}
 	}
 
+	if fixture.lbipam.metrics.ConflictingPools.Get() != 1 {
+		t.Fatalf("cilium_operator_lbipam_conflicting_pools should report 1 but got %d", int(fixture.lbipam.metrics.ConflictingPools.Get()))
+	}
+
 	// Phase 2, resolving the conflict
 
 	// Remove the conflicting range
@@ -72,6 +76,10 @@ func TestConflictResolution(t *testing.T) {
 	poolB = fixture.GetPool("pool-b")
 	if isPoolConflicting(poolB) {
 		t.Fatal("Pool B should no longer be conflicting")
+	}
+
+	if fixture.lbipam.metrics.ConflictingPools.Get() != 0 {
+		t.Fatalf("cilium_operator_lbipam_conflicting_pools should report 0 but got %d", int(fixture.lbipam.metrics.ConflictingPools.Get()))
 	}
 }
 
@@ -88,6 +96,10 @@ func TestPoolInternalConflict(t *testing.T) {
 		t.Fatal("Pool A should be conflicting")
 	}
 
+	if fixture.lbipam.metrics.ConflictingPools.Get() != 1 {
+		t.Fatalf("cilium_operator_lbipam_conflicting_pools should report 1 but got %d", int(fixture.lbipam.metrics.ConflictingPools.Get()))
+	}
+
 	poolA.Spec.Blocks = []cilium_api_v2.CiliumLoadBalancerIPPoolIPBlock{
 		{
 			Cidr: "10.0.10.0/24",
@@ -98,6 +110,10 @@ func TestPoolInternalConflict(t *testing.T) {
 
 	if isPoolConflicting(poolA) {
 		t.Fatal("Expected pool to be un-marked conflicting")
+	}
+
+	if fixture.lbipam.metrics.ConflictingPools.Get() != 0 {
+		t.Fatalf("cilium_operator_lbipam_conflicting_pools should report 0 but got %d", int(fixture.lbipam.metrics.ConflictingPools.Get()))
 	}
 }
 
@@ -2766,7 +2782,7 @@ func TestLBIPAMRestartOnFullPool(t *testing.T) {
 
 	// Create N services
 	N := 16
-	for i := 0; i < N; i++ {
+	for i := range N {
 		_, err = fakeK8s.Services("default").Create(t.Context(), &slim_core_v1.Service{
 			ObjectMeta: slim_meta_v1.ObjectMeta{
 				Name: "service" + strconv.Itoa(i),
@@ -2788,7 +2804,7 @@ func TestLBIPAMRestartOnFullPool(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond)
 
 	previousIPs := []string{}
-	for i := 0; i < N; i++ {
+	for i := range N {
 		svc, err := fakeK8s.Services("default").Get(t.Context(), "service"+strconv.Itoa(i), meta_v1.GetOptions{})
 		require.NoError(t, err)
 		t.Log("service", i, "ingress", svc.Status.LoadBalancer.Ingress)
@@ -2844,14 +2860,14 @@ func TestLBIPAMRestartOnFullPool(t *testing.T) {
 		assert.Equal(collect, int64(N), counters.serviceEvents.Load())
 	}, 5*time.Second, 100*time.Millisecond)
 
-	for i := 0; i < N; i++ {
+	for i := range N {
 		svc, err := fakeK8s.Services("default").Get(t.Context(), "service"+strconv.Itoa(i), meta_v1.GetOptions{})
 		require.NoError(t, err)
 		t.Log("service", i, "ingress", svc.Status.LoadBalancer.Ingress)
 	}
 
 	// The same services should still have IPs
-	for i := 0; i < N; i++ {
+	for i := range N {
 		svc, err := fakeK8s.Services("default").Get(t.Context(), "service"+strconv.Itoa(i), meta_v1.GetOptions{})
 		require.NoError(t, err)
 		if i < N/2 {

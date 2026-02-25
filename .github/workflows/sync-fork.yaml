@@ -1,0 +1,127 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 9 AM UTC
+  pull_request:
+      types: [opened, synchronize, reopened]
+      branches: [ main ]
+      paths:
+      - '.github/workflows/sync-fork.yaml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disable all upstream workflows (pre-sync)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const SYNC_WORKFLOW_PATH = '.github/workflows/sync-fork.yaml';
+            const workflows = await github.paginate(
+              github.rest.actions.listRepoWorkflows,
+              { owner: context.repo.owner, repo: context.repo.repo }
+            );
+            for (const wf of workflows) {
+              if (wf.path !== SYNC_WORKFLOW_PATH && wf.state === 'active') {
+                await github.rest.actions.disableWorkflow({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: wf.id,
+                });
+                console.log(`Disabled: ${wf.name} (${wf.path})`);
+              }
+            }
+
+      - name: Checkout fork (SSH via deploy key)
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          fetch-depth: 0
+
+      - name: Fetch upstream and prepare sync branch
+        id: prepare
+        run: |
+          git remote add upstream https://github.com/cilium/cilium.git
+          git fetch upstream main
+
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "Fork is already up to date with upstream."
+            exit 0
+          fi
+
+          echo "Upstream is $BEHIND commit(s) ahead. Pushing sync branch..."
+          git checkout -B sync/upstream upstream/main
+          git push origin sync/upstream --force
+
+      - name: Create sync PR
+        if: steps.prepare.outputs.behind != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const behind = '${{ steps.prepare.outputs.behind }}';
+
+            const { data: existingPRs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:sync/upstream`,
+              base: 'main',
+            });
+
+            if (existingPRs.length > 0) {
+              const pr = existingPRs[0];
+              console.log(`Sync PR already exists: #${pr.number} — ${pr.html_url}`);
+              console.log('The sync/upstream branch has been updated. The PR will reflect the latest changes.');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner,
+              repo,
+              title: 'chore: sync fork with upstream cilium/cilium',
+              head: 'sync/upstream',
+              base: 'main',
+              body: `Automated weekly sync from upstream cilium/cilium.\n\nUpstream is ${behind} commit(s) ahead.`,
+            });
+            console.log(`Created PR #${pr.number}: ${pr.html_url}`);
+            core.notice(`Sync PR created: ${pr.html_url}`);
+
+      - name: Disable all upstream workflows (post-sync)
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const SYNC_WORKFLOW_PATH = '.github/workflows/sync-fork.yaml';
+            const workflows = await github.paginate(
+              github.rest.actions.listRepoWorkflows,
+              { owner: context.repo.owner, repo: context.repo.repo }
+            );
+            let disabled = 0;
+            for (const wf of workflows) {
+              if (wf.path !== SYNC_WORKFLOW_PATH && wf.state === 'active') {
+                await github.rest.actions.disableWorkflow({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: wf.id,
+                });
+                console.log(`Disabled: ${wf.name} (${wf.path})`);
+                disabled++;
+              }
+            }
+            if (disabled > 0) {
+              console.log(`Disabled ${disabled} upstream workflow(s).`);
+            } else {
+              console.log('No upstream workflows to disable.');
+            }

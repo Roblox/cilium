@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"time"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -468,7 +467,7 @@ func (e *Endpoint) regenerateBPF(regenContext *regenerationContext) (revnum uint
 			// See: https://roblox.atlassian.net/wiki/spaces/SCOMMS/pages/4878860548
 			if d := os.Getenv("CILIUM_TEST_HOST_ENDPOINT_DELAY"); d != "" {
 				if delay, parseErr := time.ParseDuration(d); parseErr == nil {
-					log.WithField("delay", delay).Warning(
+					e.getLogger().With("delay", delay).Warn(
 						"CILIUM_TEST_HOST_ENDPOINT_DELAY: sleeping before host endpoint BPF write")
 					time.Sleep(delay)
 				}

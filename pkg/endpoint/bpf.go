@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"time"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -462,6 +463,16 @@ func (e *Endpoint) regenerateBPF(regenContext *regenerationContext) (revnum uint
 		// ARP, and IPv6 ND are delivered to the host stack in all datapath configurations.
 		if e.isProperty(PropertyAtHostNS) {
 			stats.mapSync.Start()
+			// CILIUM_TEST_HOST_ENDPOINT_DELAY: deliberate delay between TC hook attachment
+			// and host endpoint BPF map write, to reproduce the TC hook race on fresh reimages.
+			// See: https://roblox.atlassian.net/wiki/spaces/SCOMMS/pages/4878860548
+			if d := os.Getenv("CILIUM_TEST_HOST_ENDPOINT_DELAY"); d != "" {
+				if delay, parseErr := time.ParseDuration(d); parseErr == nil {
+					log.WithField("delay", delay).Warning(
+						"CILIUM_TEST_HOST_ENDPOINT_DELAY: sleeping before host endpoint BPF write")
+					time.Sleep(delay)
+				}
+			}
 			err = e.lxcMap.WriteEndpoint(datapathRegenCtxt.epInfoCache)
 			stats.mapSync.End(err == nil)
 			if err != nil {

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"os"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -182,6 +183,18 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 	for _, ipIDLblsPair := range specialIdentities {
 		isHost := ipIDLblsPair.ID == identity.ReservedIdentityHost
 		if isHost {
+			// CILIUM_TEST_HOST_ENDPOINT_DELAY: deliberate delay between TC hook
+			// attachment and host endpoint BPF map write, to reproduce the TC hook
+			// race on fresh reimages. Set to e.g. "7s" to guarantee the rke2
+			// remotedialer PONG arrives inside the danger window.
+			// See: https://roblox.atlassian.net/wiki/spaces/SCOMMS/pages/4878860548
+			if d := os.Getenv("CILIUM_TEST_HOST_ENDPOINT_DELAY"); d != "" {
+				if delay, parseErr := time.ParseDuration(d); parseErr == nil {
+					s.params.Logger.With("delay", delay).Warn(
+						"CILIUM_TEST_HOST_ENDPOINT_DELAY: sleeping before host endpoint BPF write")
+					time.Sleep(delay)
+				}
+			}
 			added, err := lxcmap.SyncHostEntry(ipIDLblsPair.IP)
 			if err != nil {
 				return fmt.Errorf("Unable to add host entry to endpoint map: %w", err)

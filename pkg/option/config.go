@@ -177,6 +177,11 @@ const (
 	// Intended for operating cilium with CNI-compatible orchestrators other than Kubernetes. (default is true)
 	EnableK8s = "enable-k8s"
 
+	// IgnoreApiserverFailOnStart controls whether a failure to connect to the
+	// k8s API server during startup is treated as fatal. When true, the agent
+	// continues starting in a degraded state instead of exiting. (default is false)
+	IgnoreApiserverFailOnStart = "ignore-apiserver-fail-onstart"
+
 	// K8sAPIServer is the kubernetes api address server (for https use --k8s-kubeconfig-path instead)
 	K8sAPIServer = "k8s-api-server"
 

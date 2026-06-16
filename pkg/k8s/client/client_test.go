@@ -808,3 +808,185 @@ func BenchmarkIsConnReadyMultipleAPIServers(b *testing.B) {
 
 	require.NoError(b, h.Stop(tlog, ctx))
 }
+
+// newDegradedHive builds a hive wired to the given server URL. Returns the hive
+// and its flag set so callers can set additional flags before starting.
+func newDegradedHive(t *testing.T, serverURL string) (*hive.Hive, *pflag.FlagSet) {
+	t.Helper()
+	h := hive.New(
+		Cell,
+		cell.Provide(
+			loadbalancer.NewFrontendsTable, statedb.RWTable[*loadbalancer.Frontend].ToTable,
+			func() loadbalancer.Config { return loadbalancer.DefaultConfig },
+		),
+		cell.Invoke(func(Clientset) {}),
+	)
+	flags := pflag.NewFlagSet("", pflag.ContinueOnError)
+	h.RegisterFlags(flags)
+	flags.Set(option.K8sAPIServerURLs, serverURL)
+	flags.Set(option.K8sClientQPSLimit, "500")
+	return h, flags
+}
+
+// Test_degradedStart_flagDisabled verifies the default behavior: a failed API-server
+// connection during startup is fatal.
+func Test_degradedStart_flagDisabled(t *testing.T) {
+	origTimeout, origRetry := connTimeout, connRetryInterval
+	connTimeout, connRetryInterval = 50*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { connTimeout, connRetryInterval = origTimeout, origRetry })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	h, _ := newDegradedHive(t, srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := h.Start(hivetest.Logger(t), ctx)
+	require.Error(t, err, "startup should fail when server is unreachable and flag is disabled")
+}
+
+// Test_degradedStart_flagEnabled verifies that startup succeeds when
+// IgnoreApiserverFailOnStart is true, even though the API server is unreachable.
+func Test_degradedStart_flagEnabled(t *testing.T) {
+	origTimeout, origRetry := connTimeout, connRetryInterval
+	connTimeout, connRetryInterval = 50*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { connTimeout, connRetryInterval = origTimeout, origRetry })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	h, flags := newDegradedHive(t, srv.URL)
+	flags.Set(option.IgnoreApiserverFailOnStart, "true")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tlog := hivetest.Logger(t)
+
+	require.NoError(t, h.Start(tlog, ctx))
+	require.NoError(t, h.Stop(tlog, ctx))
+}
+
+// Test_degradedStart_recovers verifies that the recovery controller exits degraded
+// state once /healthz returns 200, triggering the deferred version check.
+func Test_degradedStart_recovers(t *testing.T) {
+	origTimeout, origRetry := connTimeout, connRetryInterval
+	connTimeout, connRetryInterval = 50*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { connTimeout, connRetryInterval = origTimeout, origRetry })
+
+	var requests lock.Map[string, *http.Request]
+	getRequest := func(k string) *http.Request {
+		v, _ := requests.Load(k)
+		return v
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Store(r.URL.Path, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/namespaces/kube-system":
+			// Fail the initial waitForConn probe so startup enters degraded mode.
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/version":
+			w.Write([]byte(`{"major":"1","minor":"28"}`))
+		default:
+			// /healthz returns 200 — recovery controller will succeed immediately.
+			w.Write([]byte("{}"))
+		}
+	}))
+	defer srv.Close()
+
+	h, flags := newDegradedHive(t, srv.URL)
+	flags.Set(option.IgnoreApiserverFailOnStart, "true")
+	flags.Set(option.K8sHeartbeatTimeout, "50ms")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tlog := hivetest.Logger(t)
+
+	require.NoError(t, h.Start(tlog, ctx))
+
+	// waitForConn failed, so the version check was skipped at startup.
+	require.Nil(t, getRequest("/version"), "/version should not be called before recovery")
+
+	// After recovery the controller runs k8sversion.Update, which hits /version.
+	require.NoError(t, testutils.WaitUntil(func() bool {
+		return getRequest("/version") != nil
+	}, 5*time.Second))
+
+	require.NoError(t, h.Stop(tlog, ctx))
+}
+
+// Test_degradedStart_503HealthzKeepsRetrying verifies that the recovery controller
+// stays in degraded state while /healthz returns 503, and only exits once it
+// returns 200.
+func Test_degradedStart_503HealthzKeepsRetrying(t *testing.T) {
+	origTimeout, origRetry := connTimeout, connRetryInterval
+	connTimeout, connRetryInterval = 50*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { connTimeout, connRetryInterval = origTimeout, origRetry })
+
+	var requests lock.Map[string, *http.Request]
+	getRequest := func(k string) *http.Request {
+		v, _ := requests.Load(k)
+		return v
+	}
+
+	var mu sync.Mutex
+	healthzStatus := http.StatusServiceUnavailable
+	healthzHits := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Store(r.URL.Path, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/namespaces/kube-system":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/healthz":
+			mu.Lock()
+			status := healthzStatus
+			healthzHits++
+			mu.Unlock()
+			w.WriteHeader(status)
+		case "/version":
+			w.Write([]byte(`{"major":"1","minor":"28"}`))
+		default:
+			w.Write([]byte("{}"))
+		}
+	}))
+	defer srv.Close()
+
+	h, flags := newDegradedHive(t, srv.URL)
+	flags.Set(option.IgnoreApiserverFailOnStart, "true")
+	flags.Set(option.K8sHeartbeatTimeout, "50ms")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tlog := hivetest.Logger(t)
+
+	require.NoError(t, h.Start(tlog, ctx))
+
+	// Wait for the recovery controller to poll /healthz at least 3 times with 503.
+	require.NoError(t, testutils.WaitUntil(func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return healthzHits >= 3
+	}, 5*time.Second))
+
+	// Recovery should not have fired — /version is only called post-recovery.
+	require.Nil(t, getRequest("/version"), "/version should not be called while /healthz returns 503")
+
+	// Switch to 200; the next recovery poll should succeed.
+	mu.Lock()
+	healthzStatus = http.StatusOK
+	mu.Unlock()
+
+	require.NoError(t, testutils.WaitUntil(func() bool {
+		return getRequest("/version") != nil
+	}, 5*time.Second))
+
+	require.NoError(t, h.Stop(tlog, ctx))
+}

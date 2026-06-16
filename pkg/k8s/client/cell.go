@@ -318,16 +318,25 @@ func (c *compositeClientset) startHeartbeat() {
 // degraded state background retry
 func (c *compositeClientset) startConnRecovery() {
 	const controllerName = "k8s-conn-recovery"
+	restClient := c.KubernetesClientset.RESTClient()
 	c.controller.UpdateController(controllerName,
 		controller.ControllerParams{
 			Group: k8sConnRecoveryControllerGroup,
 			// use the same cfg vars as onstart for timeout and retry
 			// allow the controller to exec the anon at interval
 			DoFunc: func(ctx context.Context) error {
-				if err := isConnReady(c); err != nil {
+				var statusCode int
+				if err := restClient.Get().Resource("healthz").Do(ctx).StatusCode(&statusCode).Error(); err != nil {
 					c.logger.Debug("k8s API server still unreachable, will retry",
 						logfields.IPAddr, c.restConfigManager.getConfig().Host,
 						logfields.Error, err,
+					)
+					return nil
+				}
+				if statusCode != http.StatusOK {
+					c.logger.Debug("k8s API server returned non-200, will retry",
+						logfields.IPAddr, c.restConfigManager.getConfig().Host,
+						"statusCode", statusCode,
 					)
 					return nil
 				}

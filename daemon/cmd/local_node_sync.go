@@ -55,7 +55,7 @@ func (ini *localNodeSynchronizer) InitLocalNode(ctx context.Context, n *node.Loc
 		return err
 	}
 
-	if err := ini.initFromK8s(ctx, n); err != nil {
+	if err := ini.initFromK8sWithDegradedFallback(ctx, n); err != nil {
 		return err
 	}
 
@@ -71,7 +71,61 @@ func (ini *localNodeSynchronizer) InitLocalNode(ctx context.Context, n *node.Loc
 	return nil
 }
 
+// initFromK8sWithDegradedFallback initializes the local node from Kubernetes.
+// In the default (non-degraded) configuration it behaves exactly like
+// initFromK8s and blocks until the apiserver provides the node object.
+//
+// When degraded start is enabled, the apiserver initialization is bounded by a
+// timeout: if the apiserver is unreachable, the local node is restored from the
+// on-disk snapshot written by a prior healthy run, so the agent (and therefore
+// the BGP control plane) can come back up across a restart while the apiserver
+// is down. The background SyncLocalNode loop reconciles the node once the
+// apiserver becomes reachable again.
+func (ini *localNodeSynchronizer) initFromK8sWithDegradedFallback(ctx context.Context, n *node.LocalNode) error {
+	if !ini.Config.EnableK8sDegradedStart || ini.K8sLocalNode == nil {
+		return ini.initFromK8s(ctx, n)
+	}
+
+	k8sCtx, cancel := context.WithTimeout(ctx, degradedLocalNodeInitTimeout)
+	defer cancel()
+
+	if err := ini.initFromK8s(k8sCtx, n); err == nil {
+		return nil
+	} else {
+		ini.Logger.Warn("Unable to initialize local node from Kubernetes; attempting to restore from on-disk snapshot (degraded start)",
+			logfields.Error, err)
+	}
+
+	snap, ok, err := loadLocalNodeSnapshot()
+	if err != nil {
+		ini.Logger.Warn("Failed to read local node snapshot during degraded start",
+			logfields.Error, err)
+	}
+	if !ok {
+		ini.Logger.Warn("No local node snapshot available; proceeding with configuration-derived local node only (degraded start)")
+		return nil
+	}
+
+	applyLocalNodeSnapshot(n, snap)
+	ini.Logger.Info("Restored local node from on-disk snapshot (degraded start)",
+		logfields.NodeName, n.Name)
+	return nil
+}
+
 func (ini *localNodeSynchronizer) SyncLocalNode(ctx context.Context, store *node.LocalNodeStore) {
+	// When degraded start is enabled, persist the local node on every change so
+	// that a subsequent restart during an apiserver outage can restore it from
+	// disk. This observes all updates, including those made by other components
+	// (e.g. IPAM setting the Cilium internal IP), not just the Kubernetes sync.
+	if ini.Config.EnableK8sDegradedStart {
+		go store.Observe(ctx, func(ln node.LocalNode) {
+			if err := saveLocalNodeSnapshot(ln); err != nil {
+				ini.Logger.Warn("Failed to persist local node snapshot",
+					logfields.Error, err)
+			}
+		}, func(error) {})
+	}
+
 	if ini.K8sLocalNode == nil {
 		return
 	}

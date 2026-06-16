@@ -37,6 +37,7 @@ import (
 	slim_clientset "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned"
 	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 // client.Cell provides Clientset, a composition of clientsets to Kubernetes resources
@@ -237,8 +238,34 @@ func (c *compositeClientset) onStart(startCtx cell.HookContext) error {
 		return nil
 	}
 
+	degraded := option.Config.EnableK8sDegradedStart
+
 	if err := c.waitForConn(startCtx); err != nil {
-		return err
+		if !degraded {
+			return err
+		}
+		// Degraded start: the apiserver is unreachable. Rather than failing the
+		// whole agent (which would take down the datapath and the BGP control
+		// plane until the apiserver recovers), continue booting and let the
+		// heartbeat controller re-establish the connection in the background.
+		// Restore the previously detected apiserver version from disk so server
+		// capabilities stay consistent across the restart.
+		c.logger.Warn("Unable to connect to apiserver at startup; continuing in degraded mode (k8s-degraded-start is enabled)",
+			logfields.Error, err)
+		c.startHeartbeat()
+		if version, ok := loadK8sVersionSnapshot(); ok {
+			if ferr := k8sversion.Force(version); ferr != nil {
+				c.logger.Warn("Failed to restore Kubernetes apiserver version from snapshot during degraded start",
+					logfields.Error, ferr)
+			} else {
+				c.logger.Info("Restored Kubernetes apiserver version from on-disk snapshot for degraded start",
+					logfields.Version, version)
+			}
+		} else {
+			c.logger.Warn("No Kubernetes apiserver version snapshot available; server capabilities will use defaults until the apiserver becomes reachable")
+		}
+		c.started = true
+		return nil
 	}
 	c.startHeartbeat()
 
@@ -250,6 +277,12 @@ func (c *compositeClientset) onStart(startCtx cell.HookContext) error {
 	if !k8sversion.Capabilities().MinimalVersionMet {
 		return fmt.Errorf("k8s version (%v) is not meeting the minimal requirement (%v)",
 			k8sversion.Version(), k8sversion.MinimalVersionConstraint)
+	}
+
+	// Persist the detected version so that a future degraded start (apiserver
+	// unreachable) can restore the server capabilities from disk.
+	if degraded {
+		saveK8sVersionSnapshot(c.logger, k8sversion.Version().String())
 	}
 
 	c.started = true

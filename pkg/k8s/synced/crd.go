@@ -154,8 +154,16 @@ func SyncCRDs(ctx context.Context, logger *slog.Logger, clientset client.Clients
 
 	// Create a context so that we can timeout after the configured CRD wait
 	// peroid.
-	ctx, cancel := context.WithTimeout(ctx, cfg.CRDWaitTimeout)
-	defer cancel()
+	//
+	// When degraded start is enabled we intentionally do NOT impose the
+	// CRDWaitTimeout: a missing apiserver must not be fatal, and we want this
+	// sync (and therefore the CRDSync promise) to eventually succeed once the
+	// apiserver becomes reachable again, rather than rejecting permanently.
+	if !option.Config.EnableK8sDegradedStart {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.CRDWaitTimeout)
+		defer cancel()
+	}
 
 	crds.Lock()
 	for crd := range crds.m {
@@ -206,6 +214,16 @@ func SyncCRDs(ctx context.Context, logger *slog.Logger, clientset client.Clients
 		case <-ctx.Done():
 			err := ctx.Err()
 			if err != nil && !errors.Is(err, context.Canceled) {
+				if option.Config.EnableK8sDegradedStart {
+					logger.Warn(
+						"Timed out waiting for Cilium CRDs; continuing in degraded mode "+
+							"(k8s-degraded-start is enabled). CRD-driven features such as "+
+							"the BGP control plane stay inactive until the apiserver is reachable.",
+						logfields.CRDs, crds.unSynced(),
+						logfields.Error, err,
+					)
+					return err
+				}
 				logging.Fatal(
 					logger,
 					fmt.Sprintf("Unable to find all Cilium CRDs necessary within "+

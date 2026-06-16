@@ -889,6 +889,9 @@ func InitGlobalFlags(logger *slog.Logger, cmd *cobra.Command, vp *viper.Viper) {
 	flags.MarkHidden(option.EnableK8sNetworkPolicy)
 	option.BindEnv(vp, option.EnableK8sNetworkPolicy)
 
+	flags.Bool(option.K8sDegradedStart, false, "Allow the agent to start in a degraded mode when the Kubernetes apiserver is unreachable: the k8s connection/version checks become non-fatal and the local node is restored from an on-disk snapshot. Keeps the datapath and BGP control plane able to restart during an apiserver outage.")
+	option.BindEnv(vp, option.K8sDegradedStart)
+
 	flags.Bool(option.EnableCiliumNetworkPolicy, defaults.EnableCiliumNetworkPolicy, "Enable support for Cilium Network Policy")
 	flags.MarkHidden(option.EnableCiliumNetworkPolicy)
 	option.BindEnv(vp, option.EnableCiliumNetworkPolicy)

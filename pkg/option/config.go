@@ -1022,6 +1022,13 @@ const (
 	// EnableK8sNetworkPolicy enables support for K8s NetworkPolicy.
 	EnableK8sNetworkPolicy = "enable-k8s-networkpolicy"
 
+	// K8sDegradedStart allows the agent to start in a degraded mode when the
+	// Kubernetes apiserver is unreachable, restoring the local node from an
+	// on-disk snapshot instead of blocking. This keeps the datapath and BGP
+	// control plane able to come back up across agent restarts during an
+	// apiserver outage.
+	K8sDegradedStart = "k8s-degraded-start"
+
 	// EnableCiliumNetworkPolicy enables support for Cilium Network Policy.
 	EnableCiliumNetworkPolicy = "enable-cilium-network-policy"
 
@@ -1971,6 +1978,14 @@ type DaemonConfig struct {
 
 	// EnableK8sNetworkPolicy enables support for K8s NetworkPolicy.
 	EnableK8sNetworkPolicy bool
+
+	// EnableK8sDegradedStart allows the agent to start in a degraded mode when
+	// the Kubernetes apiserver is unreachable at startup. When set, the k8s
+	// clientset connection and version checks become non-fatal, and the local
+	// node is restored from an on-disk snapshot instead of blocking on the
+	// apiserver. This allows the agent (and the BGP control plane) to come back
+	// up across restarts while the apiserver is down.
+	EnableK8sDegradedStart bool
 
 	// EnableCiliumNetworkPolicy enables support for Cilium Network Policy.
 	EnableCiliumNetworkPolicy bool
@@ -2970,6 +2985,7 @@ func (c *DaemonConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 
 	// To support K8s NetworkPolicy
 	c.EnableK8sNetworkPolicy = vp.GetBool(EnableK8sNetworkPolicy)
+	c.EnableK8sDegradedStart = vp.GetBool(K8sDegradedStart)
 	c.PolicyCIDRMatchMode = vp.GetStringSlice(PolicyCIDRMatchMode)
 	c.EnableNodeSelectorLabels = vp.GetBool(EnableNodeSelectorLabels)
 	c.NodeLabels = vp.GetStringSlice(NodeLabels)

@@ -288,6 +288,16 @@ func (n *NodeDiscovery) updateCiliumNodeResource(ctx context.Context, ln *node.L
 			}
 		}
 	}
+	if option.Config.EnableK8sDegradedStart {
+		// In degraded mode the apiserver may be unreachable. Creating/updating
+		// the CiliumNode resource must not be fatal: log and return so the agent
+		// can finish starting (and the BGP control plane can come up). This path
+		// is retried on every local node change, so the resource is reconciled
+		// once the apiserver becomes reachable again.
+		n.logger.Warn("Could not create or update CiliumNode resource; continuing in degraded mode (will retry on next local node update)",
+			logfields.Error, lastErr, logfields.Retries, maxRetryCount)
+		return
+	}
 	logging.Fatal(n.logger, "Could not create or update CiliumNode resource", logfields.Error, lastErr, logfields.Retries, maxRetryCount)
 }
 

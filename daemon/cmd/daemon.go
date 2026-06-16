@@ -474,22 +474,49 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		// context deadline or if the context has been cancelled, the context's
 		// error will be returned. Otherwise, it succeeded.
 		if !option.Config.DryMode {
-			_, err := params.CRDSyncPromise.Await(d.ctx)
-			if err != nil {
-				return nil, restoredEndpoints, err
+			if option.Config.EnableK8sDegradedStart {
+				// In degraded mode the apiserver may be unreachable. Don't block
+				// startup on CRD sync: wait only briefly and then continue, so the
+				// agent can open its API socket and start the datapath/BGP control
+				// plane. The CRDSync promise keeps trying in the background and
+				// CRD-driven reflectors converge once the apiserver is reachable.
+				crdCtx, cancel := context.WithTimeout(d.ctx, degradedStartupGateTimeout)
+				_, err := params.CRDSyncPromise.Await(crdCtx)
+				cancel()
+				if err != nil {
+					d.logger.Warn("Proceeding without Cilium CRD sync (degraded start); "+
+						"CRD-driven features activate once the apiserver is reachable",
+						logfields.Error, err)
+				}
+			} else {
+				_, err := params.CRDSyncPromise.Await(d.ctx)
+				if err != nil {
+					return nil, restoredEndpoints, err
+				}
 			}
 		}
 
 		if option.Config.IPAM == ipamOption.IPAMClusterPool ||
 			option.Config.IPAM == ipamOption.IPAMMultiPool {
 			// Create the CiliumNode custom resource. This call will block until
-			// the custom resource has been created
+			// the custom resource has been created. In degraded mode it is bounded
+			// (~5s of retries) and non-fatal; the resource is (re)created by the
+			// LocalNodeStore observer once the apiserver is reachable again.
 			d.nodeDiscovery.UpdateCiliumNodeResource()
 		}
 
 		if err := agentK8s.WaitForNodeInformation(d.ctx, d.logger, params.Resources.LocalNode, params.Resources.LocalCiliumNode); err != nil {
-			d.logger.Error("unable to connect to get node spec from apiserver", logfields.Error, err)
-			return nil, nil, fmt.Errorf("unable to connect to get node spec from apiserver: %w", err)
+			// In degraded mode, missing node information from the apiserver must
+			// not abort startup; the local node was restored from the on-disk
+			// snapshot and is reconciled in the background once the apiserver
+			// becomes reachable.
+			if option.Config.EnableK8sDegradedStart {
+				d.logger.Warn("Proceeding without node information from apiserver (degraded start)",
+					logfields.Error, err)
+			} else {
+				d.logger.Error("unable to connect to get node spec from apiserver", logfields.Error, err)
+				return nil, nil, fmt.Errorf("unable to connect to get node spec from apiserver: %w", err)
+			}
 		}
 
 		// Kubernetes demands that the localhost can always reach local

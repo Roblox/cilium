@@ -132,6 +132,14 @@ const (
 	// and DescribeSecurityGroups. Set to 0 to let AWS determine the optimal page size.
 	AWSMaxResultsPerCall = "aws-max-results-per-call"
 
+	// AWSCrossAccountRoleARN is the ARN of the IAM role in the dedicated rbx-cilium account.
+	// When not empty, the Cilium Operator assumes this role to execute ENI lifecycle operations
+	// (create, delete, assign/unassign secondary IPs) in the target account. The local cluster
+	// instance profile continues to handle local instance-level operations (attach, describe instances).
+	// Required to enable cross-account IPAM when managing pod subnets shared via AWS RAM
+	// into the rbx-cilium sandbox account.
+	AWSCrossAccountRoleARN = "aws-cross-account-role"
+
 	// Azure options
 
 	// AzureSubscriptionID is the subscription ID to use when accessing the Azure API

@@ -131,6 +131,14 @@ const (
 	// node
 	AWSUsePrimaryAddress = "aws-use-primary-address"
 
+	// AWSCrossAccountRoleARN is the ARN of the IAM role in the dedicated rbx-cilium account.
+	// When not empty, the Cilium Operator assumes this role to execute ENI lifecycle operations
+	// (create, delete, assign/unassign secondary IPs) in the target account. The local cluster
+	// instance profile continues to handle local instance-level operations (attach, describe instances).
+	// Required to enable cross-account IPAM when managing pod subnets shared via AWS RAM
+	// into the rbx-cilium sandbox account.
+	AWSCrossAccountRoleARN = "aws-cross-account-role"
+
 	// Azure options
 
 	// AzureSubscriptionID is the subscription ID to use when accessing the Azure API
@@ -332,6 +340,10 @@ type OperatorConfig struct {
 	// e.g. "ec2-fips.us-west-1.amazonaws.com" to use a FIPS endpoint in the us-west-1 region.
 	EC2APIEndpoint string
 
+	// AWSCrossAccountRoleARN is the ARN of the IAM role in the rbx-cilium account assumed
+	// for cross-account ENI lifecycle operations.
+	AWSCrossAccountRoleARN string
+
 	// Azure options
 
 	// AzureSubscriptionID is the subscription ID to use when accessing the Azure API
@@ -451,6 +463,7 @@ func (c *OperatorConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 	c.AWSEnablePrefixDelegation = vp.GetBool(AWSEnablePrefixDelegation)
 	c.AWSUsePrimaryAddress = vp.GetBool(AWSUsePrimaryAddress)
 	c.EC2APIEndpoint = vp.GetString(EC2APIEndpoint)
+	c.AWSCrossAccountRoleARN = vp.GetString(AWSCrossAccountRoleARN)
 	c.ExcessIPReleaseDelay = vp.GetInt(ExcessIPReleaseDelay)
 	c.ENIGarbageCollectionInterval = vp.GetDuration(ENIGarbageCollectionInterval)
 

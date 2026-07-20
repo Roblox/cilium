@@ -47,9 +47,12 @@ func (c *callTrackingAPI) DeleteNetworkInterface(ctx context.Context, eniID stri
 	return c.EC2API.DeleteNetworkInterface(ctx, eniID)
 }
 
-func newTestCrossAccountClient(t *testing.T, local, remote EC2API, localAccountID string) *CrossAccountEC2Client {
+func newTestCrossAccountClient(t *testing.T, local, remote EC2API, localAccountID string) *MultiAccountEC2Client {
 	t.Helper()
-	return NewCrossAccountEC2Client(hivetest.Logger(t), local, remote, localAccountID)
+	return NewMultiAccountEC2Client(hivetest.Logger(t), map[AccountRole]EC2API{
+		RoleInstanceOwner: local,
+		RoleNetworkOwner:  remote,
+	}, localAccountID)
 }
 
 var (

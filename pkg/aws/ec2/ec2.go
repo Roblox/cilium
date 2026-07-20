@@ -16,9 +16,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/cilium/cilium/pkg/api/helpers"
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
@@ -42,22 +44,23 @@ const (
 	// requires looking at the error message to get the actual reason. See SubnetFullErrMsgStr for example.
 	InvalidParameterValueStr = "InvalidParameterValue"
 
-	AssignPrivateIpAddresses        = "AssignPrivateIpAddresses"
-	AssociateAddress                = "AssociateAddress"
-	AttachNetworkInterface          = "AttachNetworkInterface"
-	CreateNetworkInterface          = "CreateNetworkInterface"
-	DeleteNetworkInterface          = "DeleteNetworkInterface"
-	DescribeAddresses               = "DescribeAddresses"
-	DescribeInstances               = "DescribeInstances"
-	DescribeInstanceTypes           = "DescribeInstanceTypes"
-	DescribeNetworkInterfaces       = "DescribeNetworkInterfaces"
-	DescribeSecurityGroups          = "DescribeSecurityGroups"
-	DescribeSubnets                 = "DescribeSubnets"
-	DescribeVpcs                    = "DescribeVpcs"
-	DescribeRouteTables             = "DescribeRouteTables"
-	ModifyNetworkInterface          = "ModifyNetworkInterface"
-	ModifyNetworkInterfaceAttribute = "ModifyNetworkInterfaceAttribute"
-	UnassignPrivateIpAddresses      = "UnassignPrivateIpAddresses"
+	AssignPrivateIpAddresses         = "AssignPrivateIpAddresses"
+	AssociateAddress                 = "AssociateAddress"
+	AttachNetworkInterface           = "AttachNetworkInterface"
+	CreateNetworkInterface           = "CreateNetworkInterface"
+	CreateNetworkInterfacePermission = "CreateNetworkInterfacePermission"
+	DeleteNetworkInterface           = "DeleteNetworkInterface"
+	DescribeAddresses                = "DescribeAddresses"
+	DescribeInstances                = "DescribeInstances"
+	DescribeInstanceTypes            = "DescribeInstanceTypes"
+	DescribeNetworkInterfaces        = "DescribeNetworkInterfaces"
+	DescribeSecurityGroups           = "DescribeSecurityGroups"
+	DescribeSubnets                  = "DescribeSubnets"
+	DescribeVpcs                     = "DescribeVpcs"
+	DescribeRouteTables              = "DescribeRouteTables"
+	ModifyNetworkInterface           = "ModifyNetworkInterface"
+	ModifyNetworkInterfaceAttribute  = "ModifyNetworkInterfaceAttribute"
+	UnassignPrivateIpAddresses       = "UnassignPrivateIpAddresses"
 )
 
 var syslogAttr = []any{logfields.LogSubsys, "ec2"}
@@ -122,6 +125,29 @@ func NewConfig(ctx context.Context) (aws.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// NewCrossAccountConfig returns an aws.Config that assumes the given IAM role ARN.
+// The base config (with region and retry settings) is reused; maybe this will need a change?
+func NewCrossAccountConfig(ctx context.Context, baseConfig aws.Config, roleARN string) (aws.Config, error) {
+	stsClient := sts.NewFromConfig(baseConfig)
+	creds := stscreds.NewAssumeRoleProvider(stsClient, roleARN)
+	cfg := baseConfig.Copy()
+	cfg.Credentials = aws.NewCredentialsCache(creds)
+	// make a call with it confirm the creds work rather than waiting for object's first call
+	if _, err := cfg.Credentials.Retrieve(ctx); err != nil {
+		return aws.Config{}, fmt.Errorf("unable to assume cross-account role %s: %w", roleARN, err)
+	}
+	return cfg, nil
+}
+
+// GetLocalAccountID returns the AWS account ID of the instance running this process.
+func GetLocalAccountID(ctx context.Context, cfg aws.Config) (string, error) {
+	doc, err := imds.NewFromConfig(cfg).GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
+	if err != nil {
+		return "", fmt.Errorf("unable to retrieve instance identity document: %w", err)
+	}
+	return doc.AccountID, nil
 }
 
 // NewSubnetsFilters transforms a map of tags and values and a slice of subnets
@@ -731,6 +757,24 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 	}
 
 	return eni.ID, eni, nil
+}
+
+// CreateNetworkInterfacePermission grants INSTANCE-ATTACH permission on the given ENI to a difft AWS account.
+// This is required before an instance in accountID can attach an ENI owned by a different account.
+func (c *Client) CreateNetworkInterfacePermission(ctx context.Context, eniID string, accountID string) error {
+	input := &ec2.CreateNetworkInterfacePermissionInput{
+		NetworkInterfaceId: aws.String(eniID),
+		AwsAccountId:       aws.String(accountID),
+		Permission:         ec2_types.InterfacePermissionTypeInstanceAttach,
+	}
+
+	// wrap this in a limiter
+	c.limiter.Limit(ctx, CreateNetworkInterfacePermission)
+	// track how long it takes
+	sinceStart := spanstat.Start()
+	_, err := c.ec2Client.CreateNetworkInterfacePermission(ctx, input)
+	c.metricsAPI.ObserveAPICall(CreateNetworkInterfacePermission, deriveStatus(err), sinceStart.Seconds())
+	return err
 }
 
 // DeleteNetworkInterface deletes an ENI with the specified ID

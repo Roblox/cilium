@@ -50,5 +50,8 @@ func (hook *awsFlagsHooks) RegisterProviderFlag(cmd *cobra.Command, vp *viper.Vi
 	flags.String(operatorOption.EC2APIEndpoint, "", "AWS API endpoint for the EC2 service")
 	option.BindEnv(vp, operatorOption.EC2APIEndpoint)
 
+	flags.String(operatorOption.AWSCrossAccountRoleARN, "", "ARN of the IAM role in the dedicated rbx-cilium account for cross-account IPAM")
+	option.BindEnv(vp, operatorOption.AWSCrossAccountRoleARN)
+
 	vp.BindPFlags(flags)
 }

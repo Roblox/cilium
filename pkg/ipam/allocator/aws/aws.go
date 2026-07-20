@@ -26,12 +26,13 @@ import (
 )
 
 var subsysLogAttr = []any{logfields.LogSubsys, "ipam-allocator-aws"}
+var _ eni.EC2API = (*eni.CrossAccountEC2Client)(nil)
 
 // AllocatorAWS is an implementation of IPAM allocator interface for AWS ENI
 type AllocatorAWS struct {
 	rootLogger *slog.Logger
 	logger     *slog.Logger
-	client     *ec2shim.Client
+	client     eni.EC2API
 	eniGCTags  map[string]string
 }
 
@@ -109,10 +110,32 @@ func (a *AllocatorAWS) Init(ctx context.Context, logger *slog.Logger) error {
 		}
 	}
 
-	a.client = ec2shim.NewClient(a.rootLogger, ec2.NewFromConfig(cfg, optionsFunc), aMetrics, operatorOption.Config.IPAMAPIQPSLimit,
+	localClient := ec2shim.NewClient(a.rootLogger, ec2.NewFromConfig(cfg, optionsFunc), aMetrics, operatorOption.Config.IPAMAPIQPSLimit,
 		operatorOption.Config.IPAMAPIBurst, subnetsFilters, instancesFilters, eniCreationTags,
 		operatorOption.Config.AWSUsePrimaryAddress)
 
+	if operatorOption.Config.AWSCrossAccountRoleARN == "" {
+		a.client = localClient
+		return nil
+	}
+
+	a.logger.Debug("Cross-account ENI mode detected", "roleARN", operatorOption.Config.AWSCrossAccountRoleARN)
+
+	crossAccountCfg, err := ec2shim.NewCrossAccountConfig(ctx, cfg, operatorOption.Config.AWSCrossAccountRoleARN)
+	if err != nil {
+		return fmt.Errorf("failed to create cross-account AWS config: %w", err)
+	}
+
+	localAccountID, err := ec2shim.GetLocalAccountID(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("unable to determine local AWS account ID for cross-account ENI permissions: %w", err)
+	}
+
+	remoteClient := ec2shim.NewClient(a.rootLogger, ec2.NewFromConfig(crossAccountCfg, optionsFunc), aMetrics, operatorOption.Config.IPAMAPIQPSLimit,
+		operatorOption.Config.IPAMAPIBurst, subnetsFilters, instancesFilters, eniCreationTags,
+		operatorOption.Config.AWSUsePrimaryAddress)
+
+	a.client = eni.NewCrossAccountEC2Client(a.rootLogger, localClient, remoteClient, localAccountID)
 	return nil
 }
 

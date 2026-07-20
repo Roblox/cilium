@@ -798,3 +798,7 @@ func (e *API) GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap, er
 func (e *API) GetInstanceTypes(ctx context.Context) ([]ec2_types.InstanceTypeInfo, error) {
 	return e.instanceTypes, nil
 }
+
+func (e *API) CreateNetworkInterfacePermission(_ context.Context, _ string, _ string) error {
+	return nil
+}

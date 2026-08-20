@@ -26,7 +26,7 @@ import (
 )
 
 var subsysLogAttr = []any{logfields.LogSubsys, "ipam-allocator-aws"}
-var _ eni.EC2API = (*eni.MultiAccountEC2Client)(nil)
+var _ eni.EC2API = (*eni.CrossAccountEC2Client)(nil)
 
 // AllocatorAWS is an implementation of IPAM allocator interface for AWS ENI
 type AllocatorAWS struct {
@@ -135,10 +135,7 @@ func (a *AllocatorAWS) Init(ctx context.Context, logger *slog.Logger) error {
 		operatorOption.Config.IPAMAPIBurst, subnetsFilters, instancesFilters, eniCreationTags,
 		operatorOption.Config.AWSUsePrimaryAddress)
 
-	a.client = eni.NewMultiAccountEC2Client(a.rootLogger, map[eni.AccountRole]eni.EC2API{
-		eni.RoleInstanceOwner: localClient,
-		eni.RoleNetworkOwner:  remoteClient,
-	}, localAccountID)
+	a.client = eni.NewCrossAccountEC2Client(a.rootLogger, localClient, remoteClient, localAccountID)
 	return nil
 }
 

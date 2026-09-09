@@ -209,15 +209,28 @@ func (s *LocalNodeStore) Get(ctx context.Context) (LocalNode, error) {
 // Update modifies the local node with a mutator. The updated value
 // is passed to observers. Calling LocalNodeStore.Get() from the
 // mutation function is forbidden, and would result in a deadlock.
+//
+// If the mutator produces no change (as determined by DeepEqual), the update
+// is skipped and observers are not woken up. This mirrors the upstream change
+// in cilium/cilium#41294 ("node: Skip equal objects in Update()") and avoids
+// redundant downstream work such as CiliumNode resource writes triggered by
+// no-op local node updates (which can be fatal during a Kubernetes apiserver
+// outage).
+//
+// NOTE: change detection relies on a shallow copy of the previous value, so
+// mutators must reassign fields rather than mutate referenced maps/slices in
+// place. All current callers follow this convention.
 func (s *LocalNodeStore) Update(update func(*LocalNode)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.getMu.Lock()
+	before := s.value
 	update(&s.value)
+	changed := !s.value.DeepEqual(&before)
 	s.getMu.Unlock()
 
-	if s.emit != nil {
+	if changed && s.emit != nil {
 		s.emit(s.value)
 	}
 }
